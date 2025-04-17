@@ -6,7 +6,7 @@ __pycache__/
 # C extensions
 *.so
 
-# Remove Mac DS_Store
+# macOS system file
 .DS_Store
 
 # Distribution / packaging

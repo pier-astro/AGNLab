@@ -52,7 +52,7 @@ narrow_new = AGNFitLabModels.create_fixed_model(
     fwhm=500, min_fwhm=0., max_fwhm=800.,
     offset=0, min_offset=-300, max_offset=300,
     amplitude=1., min_amplitude=0., max_amplitude=100,
-    profile='gauss')
+    profile='gauss') # Change to 'lorentz' for Lorentzian profiles
 
 # Voigt profile model
 narrow_voigt = AGNFitLabModels.create_voigt_fixed_model(

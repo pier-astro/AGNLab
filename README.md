@@ -2,7 +2,7 @@
 
 **AGNFitLab** is an extension of the [`AGNFantasy`](https://fantasy-agn.readthedocs.io/en/latest/) package, designed to provide enhanced tools for modeling AGN spectra using the [`sherpa`](https://sherpa.readthedocs.io/en/4.17.0/install.html) fitting environment in Python.
 
-It wraps and extends the original AGNFantasy package, offering additional modeling features and improved flexibility, especially useful for handling instrument responses and alternate line profiles like Voigt.
+It wraps and extends the original AGNFantasy package, offering additional modeling features and improved flexibility, especially useful for handling instrument responses and alternate line profiles like Lorentzian and Voigt.
 
 ---
 

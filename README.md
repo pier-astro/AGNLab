@@ -23,7 +23,7 @@ Before using AGNFitLab, make sure you have the following packages installed:
 
 ### Install the modules
 Clone or download the repository.
-Place it in a directory visible to Python (`PYTHONPATH``) or install it locally via:
+Place it in a directory visible to Python (`PYTHONPATH`) or install it locally via:
 ```bash
 pip install -e /path/to/AGNFitLab
 ```

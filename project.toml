@@ -11,13 +11,7 @@ authors = [
     ]
 
 dependencies = [
-    "astropy",
-    "numpy",
-    "matplotlib",
-    "fantasy_agn",
-    "sherpa>=4.15.0",
-    "scipy",
-    "pandas",
+    "fantasy_agn"
 ]
 requires-python = ">=3.0"
 

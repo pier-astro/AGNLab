@@ -6,6 +6,77 @@ from astropy.io import fits
 from sherpa.models import Model, ArithmeticModel, CompositeModel
 import warnings
 import os
+import yaml
+
+def _get_rsp_path():
+    """
+    Returns the path to the response matrix file.
+    This function is a placeholder and should be replaced with actual logic to get the response path.
+    """
+    # Replace with actual logic to get the response path
+    return os.path.join(os.path.dirname(__file__), "responses")
+
+def _get_responses_yaml_path():
+    """Return the path to the responses.yaml file."""
+    return os.path.join(os.path.dirname(__file__), "responses", "rsps.yaml")
+
+def load_responses_mapping():
+    """Load the instrument-to-FITS mapping from YAML."""
+    yaml_path = _get_responses_yaml_path()
+    if not os.path.exists(yaml_path):
+        return {}
+    with open(yaml_path, "r") as f:
+        return yaml.safe_load(f) or {}
+
+def _save_responses_mapping(mapping):
+    """Save the instrument-to-FITS mapping to YAML."""
+    yaml_path = _get_responses_yaml_path()
+    with open(yaml_path, "w") as f:
+        yaml.safe_dump(mapping, f)
+
+def add_response_to_archive(inst_name, fits_filename, clobber=False):
+    """Add or update an instrument-FITS mapping in the archive.
+    """
+    mapping = load_responses_mapping()
+    if inst_name in mapping and not clobber:
+        raise ValueError(f"Instrument '{inst_name}' already exists in the responses archive. Use clobber=True to overwrite.")
+    mapping[inst_name] = fits_filename
+    _save_responses_mapping(mapping)
+
+
+def crop_response_matrix(matrix, matrix_wave, target_wave, renormalize=True):
+    """
+    Crop a response matrix to match the target wavelengths.
+
+    Parameters:
+        matrix: 2D array or sparse matrix (N x N)
+        matrix_wave: 1D array of wavelengths corresponding to the matrix
+        target_wave: 1D array of desired wavelengths
+        renormalize: bool, whether to renormalize rows for flux conservation
+
+    Returns:
+        Cropped (and optionally renormalized) matrix
+    """
+    if not np.all([np.any(np.isclose(dw, matrix_wave)) for dw in target_wave]):
+        raise ValueError("Data wavelengths must be within the wavelength grid")
+    # Ensure the data wavelengths have the same step size as the response matrix
+    if not np.all(np.isclose(np.diff(target_wave), np.diff(matrix_wave)[0])):
+        warnings.warn("Data wavelengths do not have the same step size as the response matrix. It would be better to rebin the response of the instrument.")
+
+    indices = np.where([np.any(np.isclose(w, matrix_wave)) for w in target_wave])[0]
+    cropped = matrix[np.ix_(indices, indices)]
+
+    if renormalize:
+        # Ensure flux conservation
+        row_sums = cropped.sum(axis=1).A1 if issparse(cropped) else cropped.sum(axis=1)
+        cropped = cropped.multiply(1 / row_sums[:, np.newaxis]) if issparse(cropped) else cropped / row_sums[:, np.newaxis]
+
+    return cropped
+
+
+
+
+
 
 
 class InstRspBuilder:
@@ -82,23 +153,16 @@ class InstRspBuilder:
         hdul = fits.HDUList([primary_hdu, wavelength_hdu, matrix_hdu])
         hdul.writeto(filename, overwrite=True)
 
-    def crop_matrix(self, new_wave, renormalize=True):
-        """Crop the response matrix to match data wavelengths"""
-        if not np.all([np.any(np.isclose(dw, self.wave_grid)) for dw in new_wave]):
-            raise ValueError("Data wavelengths must be within the wavelength grid")
-        # Ensure the data wavelengths have the same step size as the response matrix
-        if not np.all(np.isclose(np.diff(new_wave), self.wstep)):
-            warnings.warn("Data wavelengths do not have the same step size as the response matrix. It would be better to rebin the response of the instrument.")
+    def save_and_register(self, filename, instrument_name, compress=True, clobber=False):
+        """Save the response matrix and register it in the YAML mapping."""
+        archive_filename = os.path.join(_get_rsp_path(), os.path.basename(filename))
+        if os.path.exists(archive_filename) and not clobber:
+            raise ValueError(f"Response file '{archive_filename}' already exists. Use clobber=True to overwrite.")
+        self.save_to_fits(archive_filename, compress=compress)
+        add_response_to_archive(instrument_name, filename, clobber=clobber)
 
-        indices = np.where([np.any(np.isclose(w, self.wave_grid)) for w in new_wave])[0]
-        cropped = self.response_matrix[np.ix_(indices, indices)]
-        
-        if renormalize:
-            # Ensure flux conservation
-            row_sums = cropped.sum(axis=1)
-            cropped /= row_sums[:, np.newaxis]
-            
-        return cropped
+    def crop_matrix(self, new_wave, renormalize=True):
+        return crop_response_matrix(self.response_matrix, self.wave_grid, new_wave, renormalize=renormalize)
     
 
 class InstRspLoader:
@@ -108,19 +172,17 @@ class InstRspLoader:
         Initialize the loader. Either `filename` or `inst` must be provided.
         
         - filename: Path to the FITS file containing the response matrix.
-        - inst: Instrument name to load the precomputed response file. Options are 'MUSE' and that's it :)
+        - inst: Instrument name to load the precomputed response file.
         """
         if filename is None and inst is None:
             raise ValueError("Either `filename` or `inst` must be provided.")
         
         if inst is not None:
-            # Construct the path to the response file based on the instrument name
-            base_dir = os.path.dirname(__file__)  # Directory of the current file
-            responses_dir = os.path.join(base_dir, "responses")
-            if inst == 'MUSE':
-                self.filename = os.path.join(responses_dir, "MUSERSP.fits")
-            else:
-                raise ValueError(f"Unknown instrument: {inst}. Supported instruments are: 'MUSE'.")
+            responses_dir = os.path.join(os.path.dirname(__file__), "responses")
+            mapping = load_responses_mapping()
+            if inst not in mapping:
+                raise ValueError(f"Unknown instrument: {inst}. Available: {list(mapping.keys())}")
+            self.filename = os.path.join(responses_dir, mapping[inst])
         else:
             self.filename = filename
         
@@ -142,22 +204,10 @@ class InstRspLoader:
             self.full_matrix = csr_matrix(dense_matrix)
     
     def crop_matrix(self, wave, renormalize=True):
-        """Crop the response matrix to match data wavelengths"""
-        if not np.all([np.any(np.isclose(dw, self.wave)) for dw in wave]):
-            raise ValueError("Data wavelengths must be within the wavelength grid")
-        # Ensure the data wavelengths have the same step size as the response matrix
-        if not np.all(np.isclose(np.diff(wave), np.diff(self.wave)[0])):
-            warnings.warn("Data wavelengths do not have the same step size as the response matrix. It would be better to rebin the response of the instrument.")
-        
-        indices = np.where([np.any(np.isclose(w, self.wave)) for w in wave])[0]
-        cropped = self.full_matrix[np.ix_(indices, indices)]
-        
-        if renormalize:
-            # Ensure flux conservation
-            row_sums = cropped.sum(axis=1).A1  # Convert sparse matrix row sums to a 1D array
-            cropped = cropped.multiply(1 / row_sums[:, np.newaxis])
-            
-        return cropped
+        return crop_response_matrix(self.full_matrix, self.wave, wave, renormalize=renormalize)
+
+
+
 
 
 
@@ -191,6 +241,9 @@ class SpectralRsp(Model):
 
 
 
+
+
+
 # Example of usage
 if __name__=='__main__':
 
@@ -216,7 +269,7 @@ if __name__=='__main__':
     gauss.ampl = 1.0
     gauss.pos = 6000.0
     gauss.fwhm = 5
-    wave = np.arange(5800, 6200, 1)
+    wave = np.arange(5950, 6050, 1)
 
     # Crop the response matrix to match the wavelength grid
     rsp_matrix = builder.crop_matrix(wave)
@@ -232,5 +285,6 @@ if __name__=='__main__':
     plt.xlabel('Wavelength (Angstroms)')
     plt.ylabel('Flux')
     plt.title('Instrumental Response Convolution')
+    plt.margins(x=0.)
     plt.legend()
     plt.show()

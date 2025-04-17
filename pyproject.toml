@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agnfitlab"
+version = "0.1.0"
+description = "AGN spectral fitting tools"
+authors = [
+    { name = "Pierpaolo", email = "pierpaolo.condo@gmail.com" }
+    ]
+
+dependencies = [
+    "astropy",
+    "numpy",
+    "matplotlib",
+    "fantasy_agn",
+    "sherpa>=4.15.0",
+    "scipy",
+    "pandas",
+]
+requires-python = ">=3.0"
+
+[tool.setuptools.packages.find]
+where = ["."]

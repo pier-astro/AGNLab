@@ -8,10 +8,10 @@ from sherpa.models import model
 from sherpa.models.parameter import Parameter, tinyval
 from sherpa.models import ArithmeticModel, modelCacher1d, CompositeModel, ArithmeticFunctionModel, RegriddableModel1D
 from sherpa.models.basic import clean_kwargs1d
-from sherpa.utils.guess import get_position, guess_amplitude, guess_amplitude_at_ref, guess_amplitude2d, guess_bounds, guess_fwhm, guess_position, guess_reference, param_apply_limits, _guess_ampl_scale
+from sherpa.utils.guess import get_position, guess_amplitude, guess_fwhm, param_apply_limits, _guess_ampl_scale
 from sherpa.models import _modelfcts as _basic_modelfuncs
-from sherpa.astro.models import _modelfcts as _astro_modelfuncs
-from sherpa.astro.models import Lorentz1D, Voigt1D
+
+from sherpa.astro.models import _modelfcts as _astro_modelfuncs # Sherpa implementation uses a lorentzian function not normalized to the peak
 
 from fantasy_agn.models import *
 
@@ -63,6 +63,12 @@ class GaussEmLine(RegriddableModel1D):
         return _basic_modelfuncs.gauss1d(p, *args, **kwargs)
 
 
+
+
+def astropy_lorentzian(pars, x):
+    fwhm, center, ampl = pars
+    return ampl * ((fwhm / 2.0) ** 2) / ((x - center) ** 2 + (fwhm / 2.0) ** 2)
+
 class LorentzEmLine(RegriddableModel1D):
     
     def __init__(self, name='lorentz1d'):
@@ -99,9 +105,19 @@ class LorentzEmLine(RegriddableModel1D):
         else:
             param_apply_limits(norm, self.ampl, **kwargs)
 
-    @modelCacher1d
-    def calc(self, p, *args, **kwargs):
-        kwargs = clean_kwargs1d(self, kwargs)
+    # @modelCacher1d
+    # def calc(self, p, *args, **kwargs):
+    #     kwargs = clean_kwargs1d(self, kwargs)
+    #     ampl = p[0]
+    #     pos = p[1]
+    #     offs_kms = p[2]
+    #     fwhm_kms = p[3]
+    #     center = pos + offs_kms/c * pos
+    #     fwhm = fwhm_kms/c * center
+    #     p = (fwhm, center, ampl)
+    #     return _astro_modelfuncs.lorentz1d(p, *args, **kwargs) # Sherpa Implementation uses the function not normalized to the peak
+
+    def calc(self, p, x, *args, **kwargs):
         ampl = p[0]
         pos = p[1]
         offs_kms = p[2]
@@ -109,7 +125,8 @@ class LorentzEmLine(RegriddableModel1D):
         center = pos + offs_kms/c * pos
         fwhm = fwhm_kms/c * center
         p = (fwhm, center, ampl)
-        return _astro_modelfuncs.lorentz1d(p, *args, **kwargs)
+        return astropy_lorentzian(pars=p, x=x) # Astropy Implementation uses the function normalized to the peak
+
     
     
 def create_line(name='line',
@@ -219,7 +236,8 @@ def create_fixed_model(files=[],
             if profile=='gauss':
                 func = _basic_modelfuncs.gauss1d
             elif profile=='lorentz':
-                func = _astro_modelfuncs.lorentz1d
+                # func = _astro_modelfuncs.lorentz1d
+                func = astropy_lorentzian
 
             for i in range(len(pos)):
                 
@@ -252,7 +270,8 @@ def _feii(pars, x, profile='gauss'):
     if profile=='gauss':
         func = _basic_modelfuncs.gauss1d
     elif profile=='lorentz':
-        func = _astro_modelfuncs.lorentz1d
+        # func = _astro_modelfuncs.lorentz1d
+        func = astropy_lorentzian
     f = 0
     index = 1  # starting index in pars
     for i in range(len(uniq)):
@@ -335,6 +354,56 @@ def create_feii_model(name='feii', fwhm=2000, min_fwhm=1000, max_fwhm=8000, offs
 
 
 
+def astropy_voigt(pars, x):
+    """Efficient Voigt profile using Humlicek2 rational approximation."""
+
+    fwhm_G, fwhm_L, x_0, amplitude_L = pars
+
+    sqrt_ln2 = np.sqrt(np.log(2))
+    sqrt_ln2pi = np.sqrt(np.log(2) * np.pi)
+    z = np.atleast_1d(2 * (x - x_0) + 1j * fwhm_L) * sqrt_ln2 / fwhm_G
+
+    # Humlicek region I rational approximation for n=16, delta=1.35
+    AA = np.array([
+        +46236.3358828121,   -147726.58393079657j,
+        -206562.80451354137,  281369.1590631087j,
+        +183092.74968253175, -184787.96830696272j,
+        -66155.39578477248,   57778.05827983565j,
+        +11682.770904216826, -9442.402767960672j,
+        -1052.8438624933142,  814.0996198624186j,
+        +45.94499030751872,  -34.59751573708725j,
+        -0.7616559377907136,  0.5641895835476449j,
+    ])
+    bb = np.array([
+        +7918.06640624997,
+        -126689.0625,
+        +295607.8125,
+        -236486.25,
+        +84459.375,
+        -15015.0,
+        +1365.0,
+        -60.0,
+        +1.0,
+    ])
+
+    def hum2zpf16c(z, s=10.0):
+        sqrt_piinv = 1.0 / np.sqrt(np.pi)
+        zz = z * z
+        w = 1j * (z * (zz * sqrt_piinv - 1.410474)) / (0.75 + zz * (zz - 3.0))
+        mask = abs(z.real) + z.imag < s
+        if np.any(mask):
+            Z = z[mask] + 1.35j
+            ZZ = Z * Z
+            numer = (((((((((((((((AA[15]*Z + AA[14])*Z + AA[13])*Z + AA[12])*Z + AA[11])*Z +
+                               AA[10])*Z + AA[9])*Z + AA[8])*Z + AA[7])*Z + AA[6])*Z +
+                          AA[5])*Z + AA[4])*Z+AA[3])*Z + AA[2])*Z + AA[1])*Z + AA[0])
+            denom = (((((((ZZ + bb[7])*ZZ + bb[6])*ZZ + bb[5])*ZZ+bb[4])*ZZ + bb[3])*ZZ +
+                      bb[2])*ZZ + bb[1])*ZZ + bb[0]
+            w[mask] = numer / denom
+        return w
+
+    w = hum2zpf16c(z)
+    return w.real * sqrt_ln2pi / fwhm_G * fwhm_L * amplitude_L
 
 class VoigtEmLine(RegriddableModel1D):
     def __init__(self, name='voigt1d'):
@@ -370,9 +439,21 @@ class VoigtEmLine(RegriddableModel1D):
                 'max': aprime * _guess_ampl_scale}
         param_apply_limits(ampl, self.ampl, **kwargs)
     
-    @modelCacher1d
-    def calc(self, p, *args, **kwargs):
-        kwargs = clean_kwargs1d(self, kwargs)
+    # @modelCacher1d
+    # def calc(self, p, *args, **kwargs):
+    #     kwargs = clean_kwargs1d(self, kwargs)
+    #     ampl = p[0]
+    #     pos = p[1]
+    #     offs_kms = p[2]
+    #     fwhm_g_kms = p[3]
+    #     fwhm_l_kms = p[4]
+    #     center = pos + offs_kms/c * pos
+    #     fwhm_g = fwhm_g_kms/c * center
+    #     fwhm_l = fwhm_l_kms/c * center
+    #     p = (fwhm_g, fwhm_l, center, ampl)
+    #     return _astro_modelfuncs.wofz(p, *args, **kwargs)
+
+    def calc(self, p, x, *args, **kwargs):
         ampl = p[0]
         pos = p[1]
         offs_kms = p[2]
@@ -382,13 +463,14 @@ class VoigtEmLine(RegriddableModel1D):
         fwhm_g = fwhm_g_kms/c * center
         fwhm_l = fwhm_l_kms/c * center
         p = (fwhm_g, fwhm_l, center, ampl)
-        return _astro_modelfuncs.wofz(p, *args, **kwargs)
+        return astropy_voigt(pars=p, x=x)
     
+
 def create_voigt_line(name='voigt',
                 pos=4861,
                 ampl=5, min_ampl=0, max_ampl=500,
-                fwhm_g= 1000, min_fwhm_g=5, max_fwhm_g=10000,
-                fwhm_l= 1000, min_fwhm_l=5, max_fwhm_l=10000,
+                fwhm_g=1000, min_fwhm_g=1, max_fwhm_g=10000,
+                fwhm_l=1000, min_fwhm_l=10, max_fwhm_l=10000,
                 offset=0, min_offset=-3000, max_offset=3000):
     line=VoigtEmLine(name=name)
     line.pos =pos
@@ -417,7 +499,7 @@ def create_voigt_fixed_model(files=[],
                        max_offset=3000,
                        min_amplitude=0,
                        max_amplitude=600,
-                       min_fwhm_g=100,
+                       min_fwhm_g=1,
                        max_fwhm_g=7000,
                        min_fwhm_l=100,
                        max_fwhm_l=7000):
@@ -466,12 +548,13 @@ def create_voigt_fixed_model(files=[],
         def fixed(self, pars, x):
             f=0
             dft=self.dft
-            fwhm_g=pars[-1]
-            fwhm_l=pars[-2]
+            fwhm_l=pars[-1]
+            fwhm_g=pars[-2]
             offs_kms=pars[-3]
             pos = dft.position.to_numpy()
 
-            func = _astro_modelfuncs.wofz
+            # func = _astro_modelfuncs.wofz
+            func = astropy_voigt
 
             for i in range(len(pos)):
                 
@@ -499,7 +582,8 @@ def _voigt_feii(pars, x):
     fwhm_g = pars[len(uniq) + 1]
     fwhm_l = pars[len(uniq) + 2]
 
-    func = _astro_modelfuncs.wofz
+    # func = _astro_modelfuncs.wofz
+    func = astropy_voigt
 
     f = 0
     index = 1  # starting index in pars

@@ -11,7 +11,8 @@ authors = [
     ]
 
 dependencies = [
-    "fantasy_agn"
+    "fantasy_agn",
+    "sherpa>=16"
 ]
 requires-python = ">=3.0"
 

@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import glob
 from pathlib import Path
+import string
 
 import astropy.units as u
 import astropy.constants as const
@@ -18,33 +19,21 @@ from sherpa.utils.numeric_types import SherpaFloat
 
 from sherpa.astro.models import _modelfcts as _astro_modelfuncs # Sherpa implementation uses a lorentzian function not normalized to the peak
 
-from fantasy_agn.models import *
-
-__all__ = ('init_lines_csv',
-           'GaussianLine', 'GaussEmLine', 'GaussAbsLine',
-           'LorentzianLine', 'LorentzEmLine', 'LorentzAbsLine',
-           'VoigtLine', 'VoigtEmLine', 'VoigtAbsLine',
-           'TiedGaussLines', 'TiedLorentzLines', 'TiedVoigtLines',
-           'GaussFeII', 'LorentzFeII', 'VoigtFeII',
-           'GaussUVFeII', 'LorentzUVFeII', 'VoigtUVFeII',
-           'BalmerContinuum', 'BalmerLines',)
-
 c = const.c.to(u.km/u.s).value # Speed of light in km/s
 script_dir = os.path.dirname(__file__) # get the directory of the current script
 input_path = os.path.join(script_dir, "input")
 
-
-def init_lines_csv(wmin=4000, wmax=7000, dirpath='./aux', overwrite=False):
+def init_lines_csv(wmin=4000, wmax=7000, dirpath='./lines', overwrite=False):
     """
     The init_lines function initializes the lines by reading the csv files from the input folder and filtering them based on the wavelength range.
     The function takes three arguments:
         1) wmin - the minimum wavelength value to filter the lines, default is 4000
         2) wmax - the maximum wavelength value to filter the lines, default is 7000
-        3) dirpath - The path where you want to save the filtered lines. Default is './aux'
+        3) dirpath - The path where you want to save the filtered lines. Default is './lines'
     
     :param wmin=4000: Used to Set the minimum wavelength value for filtering the lines.
     :param wmax=7000: Used to Set the maximum wavelength value for filtering the lines.
-    :param dirpath='./aux': Used to Specify the directory where the filtered lines will be saved.
+    :param dirpath='./lines': Used to Specify the directory where the filtered lines will be saved.
     :param overwrite=False: Used to Overwrite the existing files in the directory.
     :return: The path to the directory where the filtered lines are saved.
     """
@@ -53,7 +42,7 @@ def init_lines_csv(wmin=4000, wmax=7000, dirpath='./aux', overwrite=False):
         is_created = True
         print(f"Directory {dirpath} created.")
     else:
-        print(f"Directory {dirpath} already exists.")
+        # print(f"Directory {dirpath} already exists.")
         is_created = False
     global csv_lines_path
     csv_lines_path = dirpath
@@ -70,7 +59,19 @@ def init_lines_csv(wmin=4000, wmax=7000, dirpath='./aux', overwrite=False):
             name = os.path.join(dirpath, Path(files).name)
             df.to_csv(name, index=False)
 
-class GaussianLine(model.RegriddableModel1D):
+
+def gaussian(pars, x):
+    """
+    Gaussian function for 1D data.
+    
+    :param pars: tuple of parameters (fwhm, center, amplitude)
+    :param x: array of x values
+    :return: array of y values
+    """
+    fwhm, center, ampl = pars
+    return ampl * np.exp(-0.5 * ((x - center) / (fwhm / 2.35482)) ** 2)
+
+class GaussianLine(model.ArithmeticModel):
     def __init__(self, name='gauss',
                  pos=5000,
                  amp=5, min_amp=-500, max_amp=500,
@@ -78,11 +79,11 @@ class GaussianLine(model.RegriddableModel1D):
                  offset=0, min_offset=-3000, max_offset=3000):
         
         self.amp = model.Parameter(modelname=name, name="amp", val=amp, min=min_amp, max=max_amp)
-        self.pos = model.Parameter(modelname=name, name="pos", val=pos, min=0, hard_min=0, frozen=True, units="Å")
+        self.pos = model.Parameter(modelname=name, name="pos", val=pos, min=0, frozen=True, units="Å")
         self.offs_kms = model.Parameter(modelname=name, name="offs_kms", val=offset, min=min_offset, max=max_offset, units="km/s")
-        self.fwhm = model.Parameter(modelname=name, name="fwhm", val=fwhm, min=min_fwhm, max=max_fwhm, hard_min=0, units="km/s")
+        self.fwhm = model.Parameter(modelname=name, name="fwhm", val=fwhm, min=min_fwhm, max=max_fwhm, hard_min=tinyval, units="km/s")
         p = (self.amp, self.pos, self.offs_kms, self.fwhm)
-        model.RegriddableModel1D.__init__(self, name, p)
+        super().__init__(name, p)
 
     # def get_center(self):
     #     center = self.pos.val + self.offs_kms.val/c * self.pos.val
@@ -102,7 +103,7 @@ class GaussianLine(model.RegriddableModel1D):
     #     fwhm_kms = fwhm / pos * c
     #     param_apply_limits(fwhm_kms, self.fwhm, **kwargs)
 
-    @modelCacher1d
+    # @modelCacher1d
     def calc(self, p, x, *args, **kwargs):
         kwargs = clean_kwargs1d(self, kwargs)
         ampl = p[0]
@@ -112,7 +113,7 @@ class GaussianLine(model.RegriddableModel1D):
         center = pos + offs_kms/c * pos
         fwhm = fwhm_kms/c * center
         p = (fwhm, center, ampl)
-        return _basic_modelfuncs.gauss1d(p, x, *args, **kwargs)
+        return gaussian(pars=p, x=x)
     
 class GaussEmLine(GaussianLine):
     def __init__(self, name='em_gauss',
@@ -147,7 +148,7 @@ def lorentzian(pars, x):
     fwhm, center, ampl = pars
     return ampl * ((fwhm / 2.0) ** 2) / ((x - center) ** 2 + (fwhm / 2.0) ** 2)
 
-class LorentzianLine(model.RegriddableModel1D):
+class LorentzianLine(model.ArithmeticModel):
     def __init__(self, name='lorentz',
                  pos=5000,
                  amp=5, min_amp=-500, max_amp=500,
@@ -155,11 +156,11 @@ class LorentzianLine(model.RegriddableModel1D):
                  offset=0, min_offset=-3000, max_offset=3000):
         
         self.amp = model.Parameter(modelname=name, name="amp", val=amp, min=min_amp, max=max_amp)
-        self.pos = model.Parameter(modelname=name, name="pos", val=pos, min=0, hard_min=0, frozen=True, units="Å")
+        self.pos = model.Parameter(modelname=name, name="pos", val=pos, min=0, frozen=True, units="Å")
         self.offs_kms = model.Parameter(modelname=name, name="offs_kms", val=offset, min=min_offset, max=max_offset, units="km/s")
-        self.fwhm = model.Parameter(modelname=name, name="fwhm", val=fwhm, min=min_fwhm, max=max_fwhm, hard_min=0, units="km/s")
+        self.fwhm = model.Parameter(modelname=name, name="fwhm", val=fwhm, min=min_fwhm, max=max_fwhm, hard_min=tinyval, units="km/s")
         p = (self.amp, self.pos, self.offs_kms, self.fwhm)
-        model.RegriddableModel1D.__init__(self, name, p)
+        super().__init__(name, p)
 
     # def get_center(self):
     #     center = self.pos.val + self.offs_kms.val/c * self.pos.val
@@ -291,7 +292,7 @@ def voigt(pars, x): # From astropy Voigt profile definition
     w = hum2zpf16c(z)
     return w.real * sqrt_ln2pi / fwhm_G * fwhm_L * amplitude_L
 
-class VoigtLine(model.RegriddableModel1D):
+class VoigtLine(model.ArithmeticModel):
     def __init__(self, name='voigt',
                  pos=5000,
                  amp=5, min_amp=-500, max_amp=500,
@@ -300,12 +301,12 @@ class VoigtLine(model.RegriddableModel1D):
                  offset=0, min_offset=-3000, max_offset=3000):
         
         self.amp = model.Parameter(modelname=name, name="amp", val=amp, min=min_amp, max=max_amp)
-        self.pos = model.Parameter(modelname=name, name="pos", val=pos, min=0, hard_min=0, frozen=True, units="Å")
+        self.pos = model.Parameter(modelname=name, name="pos", val=pos, min=0, frozen=True, units="Å")
         self.offs_kms = model.Parameter(modelname=name, name="offs_kms", val=offset, min=min_offset, max=max_offset, units="km/s")
-        self.fwhm_g = model.Parameter(modelname=name, name="fwhm_g", val=fwhm_g, min=min_fwhm_g, max=max_fwhm_g, hard_min=0, units="km/s")
-        self.fwhm_l = model.Parameter(modelname=name, name="fwhm_l", val=fwhm_l, min=min_fwhm_l, max=max_fwhm_l, hard_min=0, units="km/s")
+        self.fwhm_g = model.Parameter(modelname=name, name="fwhm_g", val=fwhm_g, min=min_fwhm_g, max=max_fwhm_g, hard_min=tinyval, units="km/s")
+        self.fwhm_l = model.Parameter(modelname=name, name="fwhm_l", val=fwhm_l, min=min_fwhm_l, max=max_fwhm_l, hard_min=tinyval, units="km/s")
         p = (self.amp, self.pos, self.offs_kms, self.fwhm_g, self.fwhm_l)
-        model.RegriddableModel1D.__init__(self, name, p)
+        super().__init__(name, p)
 
     def get_center(self):
         center = self.pos.val + self.offs_kms.val/c * self.pos.val
@@ -388,9 +389,24 @@ class VoigtAbsLine(VoigtLine):
         self.amp.hard_max = 0 # Set the hard maximum for the amplitude to 0, so it cannot be an emission line
 
 
+def _make_unique(names):
+    """
+    Make a list of unique names by appending suffixes to duplicates, starting from '_b'.
+    """
+    import string
+    counts = {}
+    result = []
+    for name in names:
+        if name not in counts:
+            counts[name] = 0
+            result.append(name)
+        else:
+            counts[name] += 1
+            suffix = '_' + string.ascii_lowercase[counts[name]] # Start from '_b' for the first duplicate (counts[name] == 1)
+            result.append(name + suffix)
+    return result
 
-
-class TiedLinesBase(model.RegriddableModel1D):
+class _TiedLinesBase(model.ArithmeticModel):
     def __init__(self, files, name, amplitude, fwhm, offset, min_offset, max_offset, min_amplitude, max_amplitude, min_fwhm, max_fwhm):
         if len(files) > 0:
             F = [pd.read_csv(os.path.join(csv_lines_path, file)) for file in files]
@@ -398,7 +414,9 @@ class TiedLinesBase(model.RegriddableModel1D):
             df.reset_index(drop=True, inplace=True)
         else:
             raise ValueError("List of csv files should be given to create model")
-        df['name'] = df.line + '_' + df.position.round(0).astype(int).astype(str)
+        df['safe_line'] = df['line'].str.replace(r'[\[\]<>]', '', regex=True).str.replace(' ', '_')
+        df['name'] = df.safe_line + '_' + df.position.round(0).astype(int).astype(str)
+        df['name'] = _make_unique(df['name'].tolist())
         uniq = df.name.tolist()
         pars = []
         for i in range(len(uniq)):
@@ -421,7 +439,7 @@ class TiedLinesBase(model.RegriddableModel1D):
     def _get_positions(self):
         return self.dft.position.to_numpy()
 
-class TiedGaussLines(TiedLinesBase):
+class TiedGaussLines(_TiedLinesBase):
     def __init__(self, files, name='', amplitude=2, min_amplitude=0, max_amplitude=600, fwhm=3000, min_fwhm=100, max_fwhm=7000, offset=0, min_offset=-300, max_offset=300):
         super().__init__(files, name, amplitude, fwhm, offset, min_offset, max_offset, min_amplitude, max_amplitude, min_fwhm, max_fwhm)
 
@@ -437,10 +455,11 @@ class TiedGaussLines(TiedLinesBase):
             ampl = pars[i]
             fwhm_func = fwhm / c * center
             p = (fwhm_func, center, ampl)
-            f += _basic_modelfuncs.gauss1d(p, x)
+            # f += _basic_modelfuncs.gauss1d(p, x)
+            f += gaussian(p, x)
         return f
 
-class TiedLorentzLines(TiedLinesBase):
+class TiedLorentzLines(_TiedLinesBase):
     def __init__(self, files, name='', amplitude=2, min_amplitude=0, max_amplitude=600, fwhm=3000, min_fwhm=100, max_fwhm=7000, offset=0, min_offset=-300, max_offset=300):
         super().__init__(files, name, amplitude, fwhm, offset, min_offset, max_offset, min_amplitude, max_amplitude, min_fwhm, max_fwhm)
 
@@ -460,7 +479,7 @@ class TiedLorentzLines(TiedLinesBase):
             f += lorentzian(p, x)
         return f
 
-class TiedVoigtLines(TiedLinesBase):
+class TiedVoigtLines(_TiedLinesBase):
     def __init__(self, files, name='',
                  amplitude=2, min_amplitude=0, max_amplitude=600,
                  fwhm_g=3000, min_fwhm_g=100, max_fwhm_g=7000,
@@ -470,7 +489,7 @@ class TiedVoigtLines(TiedLinesBase):
         super().__init__(files, name, amplitude, fwhm_g, offset, min_offset, max_offset, min_amplitude, max_amplitude, min_fwhm_g, max_fwhm_g)
         
         # Add Lorentzian FWHM parameter
-        self.fwhm_l = model.Parameter(name, "fwhm_l", fwhm_l, min=min_fwhm_l, hard_min=min_fwhm_l, max=max_fwhm_l, units='km/s')
+        self.fwhm_l = model.Parameter(name, "fwhm_l", fwhm_l, min=min_fwhm_l, max=max_fwhm_l, units='km/s')
         # Insert Lorentzian FWHM as the last parameter
         self.pars.append(self.fwhm_l)
 
@@ -499,7 +518,7 @@ class TiedVoigtLines(TiedLinesBase):
 
 
 
-class BaseFeII(model.RegriddableModel1D):
+class _BaseFeII(model.ArithmeticModel):
     def __init__(self, name="feii", csv_path=None, extra_params=None, offset=0, min_offset=-1000, max_offset=1000):
         if csv_path is None:
             csv_path = os.path.join(csv_lines_path, "feII_model.csv")
@@ -519,12 +538,11 @@ class BaseFeII(model.RegriddableModel1D):
         self.uniq = uniq
         super().__init__(name, pars)
 
-class GaussFeII(BaseFeII):
+class GaussFeII(_BaseFeII):
     def __init__(self, name="feii", csv_path=None, fwhm=2000, min_fwhm=10, max_fwhm=10000, offset=0, min_offset=-1000, max_offset=1000):
         fwhm_param = model.Parameter(name, "fwhm", fwhm, min=min_fwhm, hard_min=min_fwhm, max=max_fwhm)
         self.fwhm = fwhm_param
         super().__init__(name, csv_path, extra_params=[fwhm_param], offset=offset, min_offset=min_offset, max_offset=max_offset)
-
 
     def calc(self, pars, x, *args, **kwargs):
         dft = self.dft
@@ -543,10 +561,11 @@ class GaussFeII(BaseFeII):
                 ampl = Int[j]
                 fwhm_func = fwhm / c * center
                 p = (fwhm_func, center, ampl)
-                f += par * _basic_modelfuncs.gauss1d(p, x)
+                # f += par * _basic_modelfuncs.gauss1d(p, x)
+                f += par * gaussian(p, x)
         return f
 
-class LorentzFeII(BaseFeII):
+class LorentzFeII(_BaseFeII):
     def __init__(self, name="feii_lorentz", csv_path=None, fwhm=2000, min_fwhm=10, max_fwhm=10000, offset=0, min_offset=-1000, max_offset=1000):
         fwhm_param = model.Parameter(name, "fwhm", fwhm, min=min_fwhm, hard_min=min_fwhm, max=max_fwhm)
         self.fwhm = fwhm_param
@@ -572,7 +591,7 @@ class LorentzFeII(BaseFeII):
                 f += par * lorentzian(p, x)
         return f
 
-class VoigtFeII(BaseFeII):
+class VoigtFeII(_BaseFeII):
     def __init__(self, name="feii_voigt", csv_path=None, fwhm_g=2000, min_fwhm_g=10, max_fwhm_g=10000, fwhm_l=2000, min_fwhm_l=10, max_fwhm_l=10000, offset=0, min_offset=-1000, max_offset=1000):
         fwhm_g_param = model.Parameter(name, "fwhm_g", fwhm_g, min=min_fwhm_g, hard_min=min_fwhm_g, max=max_fwhm_g)
         fwhm_l_param = model.Parameter(name, "fwhm_l", fwhm_l, min=min_fwhm_l, hard_min=min_fwhm_l, max=max_fwhm_l)
@@ -629,14 +648,15 @@ class VoigtUVFeII(VoigtFeII):
                          offset=offset, min_offset=min_offset, max_offset=max_offset)
         
 
-class BalmerContinuum(model.RegriddableModel1D):
+class BalmerContinuum(model.ArithmeticModel):
     def __init__(self, name="BalCon", A=1, min_A=tinyval, max_A=1e6,
                  T=10000, min_T=5000, max_T=50000,
                  tau=1, min_tau=0.01, max_tau=2):
         self.A = model.Parameter(name, "A", A, min=min_A, hard_min=0, max=max_A)
         self.T = model.Parameter(name, "T", T, min=min_T, max=max_T, frozen=False, units="K")
         self.tau = model.Parameter(name, "tau", tau, min=min_tau, hard_min=tinyval, max=max_tau)
-        super().__init__(name, (self.A, self.T, self.tau))
+        p = (self.A, self.T, self.tau)
+        super().__init__(name, p)
 
     def calc(self, pars, x, *args, **kwargs):
         lambda_BE = 3646.0  # A
@@ -649,7 +669,7 @@ class BalmerContinuum(model.RegriddableModel1D):
             result[ind] = 0.0
         return result.value
 
-class BalmerLines(model.RegriddableModel1D):
+class BalmerLines(model.ArithmeticModel):
     def __init__(self, name="Bal_lines", balmer_csv=None, ampl=50, min_ampl=1, max_ampl=1e6,
                  offs_kms=1, min_offs_kms=-3000, max_offs_kms=3000,
                  fwhm=3000, min_fwhm=1000, max_fwhm=4000):
@@ -658,10 +678,11 @@ class BalmerLines(model.RegriddableModel1D):
         self.df = pd.read_csv(balmer_csv)
         self.wave = self.df.position.to_numpy()
         self.rat = self.df.int.to_numpy()
-        self.ampl = model.Parameter(name, "ampl", ampl, min=min_ampl, max=max_ampl, hard_min=0)
-        self.offs_kms = model.Parameter(name, "offs_kms", offs_kms, min=min_offs_kms, max=max_offs_kms, hard_min=min_offs_kms, units="km/s")
-        self.fwhm = model.Parameter(name, "fwhm", fwhm, min=min_fwhm, max=max_fwhm, hard_min=0, units="km/s")
-        super().__init__(name, (self.ampl, self.offs_kms, self.fwhm))
+        self.ampl = model.Parameter(name, "ampl", ampl, min=min_ampl, max=max_ampl)
+        self.offs_kms = model.Parameter(name, "offs_kms", offs_kms, min=min_offs_kms, max=max_offs_kms, units="km/s")
+        self.fwhm = model.Parameter(name, "fwhm", fwhm, min=min_fwhm, max=max_fwhm, hard_min=tinyval, units="km/s")
+        p = (self.ampl, self.offs_kms, self.fwhm)
+        super().__init__(name, p)
 
     def calc(self, pars, x, *args, **kwargs):
         lambda_BE = 3646.0
@@ -682,42 +703,7 @@ class BalmerLines(model.RegriddableModel1D):
         return f
 
 
-class Host(model.RegriddableModel1D):
-    def __init__(self, name="Host", gal_file="gal.npy", min_a=0, max_a=1e6):
-        gal = np.load(gal_file)
-        pars = []
-        for i in range(gal.shape[0]):
-            pars.append(Parameter(name, f"a{i}", 1, min=min_a, max=max_a))
-        for p in pars:
-            setattr(self, p.name, p)
-        self.gal = gal
-        super().__init__(name, pars)
-
-    def calc(self, pars, x, *args, **kwargs):
-        f = 0
-        for i in range(self.gal.shape[0]):
-            f += pars[i] * self.gal[i]
-        return f
-
-class SSP(model.RegriddableModel1D):
-    def __init__(self, name="Host", gal_file="ica.npy", min_a=0, max_a=1e6):
-        gal = np.load(gal_file)
-        pars = []
-        for i in range(gal.shape[0]):
-            pars.append(Parameter(name, f"a{i}", 1, min=min_a, max=max_a))
-        for p in pars:
-            setattr(self, p.name, p)
-        self.gal = gal
-        super().__init__(name, pars)
-
-    def calc(self, pars, x, *args, **kwargs):
-        f = 0
-        for i in range(self.gal.shape[0]):
-            f += pars[i] * self.gal[i]
-        return f
-
-
-class Powerlaw(model.RegriddableModel1D):
+class Powerlaw(model.ArithmeticModel):
     def __init__(self, name='powerlaw', w_ref=5500, amp=1., index=-1.7,
                  min_w_ref=5400, max_w_ref=7000,
                  min_amp=0.01, max_amp=10000.,
@@ -726,16 +712,16 @@ class Powerlaw(model.RegriddableModel1D):
         self.amp = model.Parameter(name, "amp", amp, min=min_amp, max=max_amp, hard_min=tinyval, units="Å")
         self.index = model.Parameter(name, "index", index, min=min_index, max=max_index, frozen=False)
         p = (self.w_ref, self.amp, self.index)
-        model.RegriddableModel.__init__(self, name, p)
+        super().__init__(name, p)
 
     def calc(self, p, x, xhi=None, **kwargs):
         arg = x / p[0]
         arg = p[1] * np.power(arg, p[2])
         return arg
 
-class BrokenPowerlaw(model.RegriddableModel1D):
+class BrokenPowerlaw(model.ArithmeticModel):
     def __init__(self, name='bknpower', w_ref=5500, amp=1., index1=-1.7, index2=0,
-                 min_w_ref=5400, max_w_ref=7000,
+                 min_w_ref=4000, max_w_ref=9000,
                  min_amp=0.01, max_amp=10000.,
                  min_index1=-3, max_index1=0,
                  min_index2=-1, max_index2=1):
@@ -744,9 +730,46 @@ class BrokenPowerlaw(model.RegriddableModel1D):
         self.index1 = model.Parameter(name, "index1", index1, min=min_index1, max=max_index1, frozen=False)
         self.index2 = model.Parameter(name, "index2", index2, min=min_index2, max=max_index2)
         p = (self.w_ref, self.amp, self.index1, self.index2)
-        model.RegriddableModel.__init__(self, name, p)
+        super().__init__(name, p)
     
     def calc(self, p, x, xhi=None, **kwargs):
         arg = x / p[0]
         arg = p[1] * (np.where(arg > 1.0, np.power(arg, p[2] + p[3]), np.power(arg, p[2])))
         return arg
+
+
+# ### --- To be better implemented later --- ###
+# class Host(model.RegriddableModel1D):
+#     def __init__(self, name="Host", gal_file="gal.npy", min_a=0, max_a=1e6):
+#         gal = np.load(gal_file)
+#         pars = []
+#         for i in range(gal.shape[0]):
+#             pars.append(Parameter(name, f"a{i}", 1, min=min_a, max=max_a))
+#         for p in pars:
+#             setattr(self, p.name, p)
+#         self.gal = gal
+#         super().__init__(name, pars)
+
+#     def calc(self, pars, x, *args, **kwargs):
+#         f = 0
+#         for i in range(self.gal.shape[0]):
+#             f += pars[i] * self.gal[i]
+#         return f
+
+# class SSP(model.RegriddableModel1D):
+#     def __init__(self, name="Host", gal_file="ica.npy", min_a=0, max_a=1e6):
+#         gal = np.load(gal_file)
+#         pars = []
+#         for i in range(gal.shape[0]):
+#             pars.append(Parameter(name, f"a{i}", 1, min=min_a, max=max_a))
+#         for p in pars:
+#             setattr(self, p.name, p)
+#         self.gal = gal
+#         super().__init__(name, pars)
+
+#     def calc(self, pars, x, *args, **kwargs):
+#         f = 0
+#         for i in range(self.gal.shape[0]):
+#             f += pars[i] * self.gal[i]
+#         return f
+# ### --- To be better implemented later --- ###

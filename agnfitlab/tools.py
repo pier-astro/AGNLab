@@ -1,5 +1,6 @@
 import numpy as np
 import warnings
+from . import instrument
 
 def make_bins(wavs):
     edges = np.zeros(wavs.shape[0]+1)
@@ -76,12 +77,18 @@ def resample_spectrum(wave, flux, fluxerr=None, new_wave=None, fill=np.nan, meth
                 widths[0] *= start_factor
                 widths[-1] *= end_factor
 
-                # Vectorized over spectra
+                denom = np.sum(widths)
+                if denom == 0:
+                    new_flux[:, j] = fill
+                    if fluxerr is not None:
+                        new_fluxerr[:, j] = fill
+                    continue
+
                 f_widths = widths * flux[:, start:stop+1]
-                new_flux[:, j] = np.sum(f_widths, axis=1) / np.sum(widths)
+                new_flux[:, j] = np.sum(f_widths, axis=1) / denom
                 if fluxerr is not None:
                     e_wid = widths * fluxerr[:, start:stop+1]
-                    new_fluxerr[:, j] = np.sqrt(np.sum(e_wid**2, axis=1)) / np.sum(widths)
+                    new_fluxerr[:, j] = np.sqrt(np.sum(e_wid**2, axis=1)) / denom
 
         # Squeeze if only one spectrum
         if new_flux.shape[0] == 1:
@@ -173,3 +180,142 @@ def compute_reduced_chi2(data, data_err, model, npars):
     chi2 = np.sum(residuals**2)
     dof = len(data) - npars  # degrees of freedom
     return chi2 / dof if dof > 0 else np.nan  # Avoid division by zero
+
+
+
+
+# ### BASIC DEFINITION
+# def get_comps(model):
+#     components = []
+#     # Base case: if the model is a leaf node (no parts), return it in a list
+#     if not hasattr(model, 'parts'):
+#         return [model]
+    
+#     def traverse_parts(parts):
+#         for part in parts:
+#             if hasattr(part, 'parts'):
+#                 traverse_parts(part.parts)
+#             else:
+#                 components.append(part)
+    
+#     if hasattr(model, 'parts'):
+#         traverse_parts(model.parts)
+    
+#     return components
+
+# def get_add_comps(model):
+#     """
+#     Recursively decompose a Sherpa compound model into additive components.
+    
+#     Parameters:
+#     model (Sherpa model instance): The model to decompose.
+    
+#     Returns:
+#     list: A list of Sherpa model instances representing each additive component.
+#     """
+#     # Base case: if the model is a leaf node (no parts), return it in a list
+#     if not hasattr(model, 'parts'):
+#         return [model]
+    
+#     # Split into left and right parts
+#     left_part, right_part = model.parts
+#     op = model.opstr  # Get the operation as a string
+    
+#     # Recursively get components for left and right parts
+#     left_components = get_add_comps(left_part)
+#     right_components = get_add_comps(right_part)
+    
+#     # Handle additive operations
+#     if op in ('+', '-'):
+#         # # For subtraction, negate the right components
+#         # if op == '-':
+#         #     right_components = [(-1) * comp for comp in right_components]
+#         return left_components + right_components
+#     else:
+#         # Handle multiplicative (or other) operations by combining all pairs
+#         components = []
+#         for lcomp in left_components:
+#             for rcomp in right_components:
+#                 components.append(model.op(lcomp, rcomp))
+#         return components
+
+### RESPONSE MODEL AWARE VERSION
+def get_comps(model):
+    """
+    Recursively decompose a Sherpa compound model into its components.
+    """
+    is_rsp_mod = isinstance(model, inst.ConvolvedModel)
+    rsp_model = None
+    if is_rsp_mod:
+        rsp_model = model.response_model
+        model = model.source_model
+    
+    components = []
+    # Base case: if the model is a leaf node (no parts), return it in a list
+    if not hasattr(model, 'parts'):
+        return [model]
+    
+    def traverse_parts(parts):
+        for part in parts:
+            if hasattr(part, 'parts'):
+                traverse_parts(part.parts)
+            else:
+                components.append(part)
+    
+    if hasattr(model, 'parts'):
+        traverse_parts(model.parts)
+
+    if is_rsp_mod:
+        components = [rsp_model(comp) for comp in components]
+
+    return components
+
+
+def get_add_comps(model):
+    """
+    Recursively decompose a Sherpa compound model into additive components.
+    
+    Parameters:
+    model (Sherpa model instance): The model to decompose.
+    
+    Returns:
+    list: A list of Sherpa model instances representing each additive component.
+    """
+    is_rsp_mod = isinstance(model, instrument.ConvolvedModel)
+    rsp_model = None
+    if is_rsp_mod:
+        rsp_model = model.response_model
+        model = model.source_model
+        
+    
+    # Base case: if the model is a leaf node (no parts), return it in a list
+    if not hasattr(model, 'parts'):
+        return [model]
+    
+    # Split into left and right parts
+    left_part, right_part = model.parts
+    op = model.opstr  # Get the operation as a string
+    
+    # Recursively get components for left and right parts
+    left_components = get_add_comps(left_part)
+    right_components = get_add_comps(right_part)
+    
+    # Handle additive operations
+    if op in ('+', '-'):
+        # # For subtraction, negate the right components
+        # if op == '-':
+        #     right_components = [(-1) * comp for comp in right_components]
+        result = left_components + right_components
+    else:
+        # Handle multiplicative (or other) operations by combining all pairs
+        components = []
+        for lcomp in left_components:
+            for rcomp in right_components:
+                components.append(model.op(lcomp, rcomp))
+        result = components
+
+    # Add logic for response model if needed
+    if is_rsp_mod:
+        result = [rsp_model(comp) for comp in result]
+
+    return result

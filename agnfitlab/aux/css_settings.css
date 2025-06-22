@@ -1,0 +1,146 @@
+<style>
+    /* ========== TABLE STYLING ========== */
+    table {
+        border-collapse: collapse;
+        /* width: 100%; */
+        min-width: fit-content;
+        color: #ffffff !important;
+        background-color: rgba(40, 40, 40, 0.9) !important;
+        margin: 1em 0;
+    }
+
+    th, td {
+        padding: 8px 12px !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        color: #ffffff !important;
+    }
+
+    th {
+        background-color: rgba(60, 60, 60, 0.95) !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.5px;
+    }
+
+    tr:nth-child(even) { background-color: rgba(50, 50, 50, 0.9) !important; }
+    tr:nth-child(odd) { background-color: rgba(40, 40, 40, 0.9) !important; }
+    tr:hover { background-color: rgba(80, 80, 80, 0.95) !important; }
+
+    /* ========== COLLAPSIBLE SECTIONS ========== */
+    details {
+        margin: 0.8rem 0;
+        border-radius: 4px;
+        overflow: hidden;
+    }
+
+    details > summary {
+        color: #ffffff !important;
+        background-color: rgba(50, 50, 50, 0.9) !important;
+        padding: 8px 12px !important;
+        cursor: pointer;
+        list-style: none;
+        transition: all 0.2s ease;
+        position: relative;
+    }
+
+    details > summary::before {
+        content: "▶";
+        color: rgba(255, 255, 255, 0.7);
+        display: inline-block;
+        margin-right: 8px;
+        transition: transform 0.2s ease;
+        font-size: 0.9em;
+    }
+
+    details[open] > summary::before {
+        transform: rotate(90deg);
+    }
+
+    details[open] > summary {
+        border-radius: 4px 4px 0 0;
+    }
+
+    /* ========== DATA PAIR STYLING ========== */
+    .datavals {
+        background-color: rgba(40, 40, 40, 0.95) !important;
+        margin: 4px 0 !important;
+        padding: 6px 8px !important;
+        border-radius: 0 0 4px 4px;
+    }
+
+    .dataname, .dataval {
+        color: #ffffff !important;
+        padding: 6px 8px !important;
+        margin: 2px 0 !important;
+        font-family: monospace;
+        transition: background-color 0.15s ease;
+    }
+
+    .dataname {
+        background-color: rgba(60, 60, 60, 0.9) !important;
+        font-weight: 200;
+        border-radius: 3px;
+        display: inline-block;
+        min-width: 220px;
+        margin-right: 10px !important;
+    }
+
+    .dataval {
+        background-color: rgba(70, 70, 70, 0.9) !important;
+        border-radius: 3px;
+        display: inline-block;
+        word-break: break-word;
+        min-width: 120px;
+    }
+
+    /* Alternating highlight for data pairs */
+    .datavals > div:nth-child(4n+1),
+    .datavals > div:nth-child(4n+2) {
+        background-color: rgba(85, 85, 85, 0.9) !important;
+    }
+
+    .dataname:hover, .dataval:hover {
+        background-color: rgba(80, 80, 80, 0.95) !important;
+    }
+
+    .datavals > div:not(:last-child) {
+        margin-bottom: 5px !important;
+    }
+
+    /* ========== CHECKBOX STYLING ========== */
+    /* Style checkboxes within the table */
+    input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        accent-color: #4CAF50; /* Green color */
+    }
+
+    /* Alternative method: Custom styling */
+    input[type="checkbox"] {
+        appearance: none; /* Hide default checkbox */
+        width: 16px;
+        height: 16px;
+        border: 2px solid #ccc;
+        border-radius: 3px;
+        background-color: transparent;
+        cursor: pointer;
+        position: relative;
+    }
+
+    /* Checked state */
+    input[type="checkbox"]:checked {
+        background-color: #4CAF50; /* Green */
+        border-color: #4CAF50;
+    }
+
+    /* Custom checkmark */
+    input[type="checkbox"]:checked::after {
+        content: "✔";
+        font-size: 12px;
+        color: white;
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+    }
+
+</style>

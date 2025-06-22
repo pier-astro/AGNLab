@@ -83,7 +83,7 @@ class HostDecompose:
         self.qso_wave = qso_wave
         self.qso_eigenspectra = qso_spectra[:n_agn] # Select the first n_agn eigenspectra
 
-    def _prepare(self, mask=None, apply_eigen_limits=True):
+    def _prepare(self, mask=None, apply_eigen_limits=True, fill=np.nan):
         """
         Prepare the host decomposition by loading eigen spectra and rebining them to the spectrum wavelength grid.
         Optionally apply a custom mask.
@@ -101,9 +101,9 @@ class HostDecompose:
                 mask = np.ones_like(self.spec.wave, dtype=bool) # Use all wavelengths
         
         wave_hs = self.spec.wave[mask]
-        flux_hs, fluxerr_hs = resample_spectrum(self.spec.wave, self.spec.flux, self.spec.fluxerr, new_wave=wave_hs)
-        gal_spectra_hs = resample_spectrum(wave=self.galaxy_wave, flux=self.galaxy_eigenspectra, new_wave=wave_hs)
-        qso_spectra_hs = resample_spectrum(wave=self.qso_wave, flux=self.qso_eigenspectra, new_wave=wave_hs)
+        flux_hs, fluxerr_hs = resample_spectrum(self.spec.wave, self.spec.flux, self.spec.fluxerr, new_wave=wave_hs, fill=fill, method='flux-conserving', verbose=False)
+        gal_spectra_hs = resample_spectrum(wave=self.galaxy_wave, flux=self.galaxy_eigenspectra, new_wave=wave_hs, fill=fill, method='flux-conserving', verbose=False)
+        qso_spectra_hs = resample_spectrum(wave=self.qso_wave, flux=self.qso_eigenspectra, new_wave=wave_hs, fill=fill, method='flux-conserving', verbose=False)
         return wave_hs, flux_hs, fluxerr_hs, gal_spectra_hs, qso_spectra_hs
     
     @staticmethod
@@ -146,8 +146,23 @@ class HostDecompose:
         coefficients : ndarray
             Best-fit coefficients for the host and AGN templates.
         """
-        if observed_fluxerr is None: # Assume a Poisson-like error
+        if observed_fluxerr is None:
             observed_fluxerr = np.sqrt(np.abs(observed_flux))
+
+        # Build a mask for valid (finite) data across all inputs
+        valid = (
+            np.all(np.isfinite(host_templates), axis=0) &
+            np.all(np.isfinite(agn_templates), axis=0) &
+            np.isfinite(observed_flux) &
+            np.isfinite(observed_fluxerr)
+        )
+
+        # Apply mask
+        host_templates = host_templates[:, valid]
+        agn_templates = agn_templates[:, valid]
+        observed_flux = observed_flux[valid]
+        observed_fluxerr = observed_fluxerr[valid]
+
         design_matrix = np.vstack([host_templates, agn_templates]).T # Stack host and AGN templates into a design matrix (columns = templates)
         weights = 1 / observed_fluxerr**2 # Calculate weights
         weighted_matrix = design_matrix * np.sqrt(weights[:, np.newaxis]) # Apply weights to the design matrix
@@ -192,18 +207,7 @@ class HostDecompose:
         self.n_agncomp = n_agn
         self._load_eigen_spectra(n_galaxy=n_galaxy, n_agn=n_agn)
 
-        if mask is not None:
-            extra_mask = mask
-        elif use_default_mask:
-            extra_mask = get_mask(self.wave_obs, self.default_mask_regions, mask_inside=True)
-        else:
-            extra_mask = np.ones_like(self.wave_obs, dtype=bool) # Default mask is all True
-        fit_mask = np.isfinite(self.flux_obs) & np.isfinite(self.fluxerr_obs) # Filter out all the possible nan or inf values in the spectrum before fitting
-        fit_mask = np.logical_and(fit_mask, extra_mask) # Combine the two masks
-        if not np.any(fit_mask):
-            raise ValueError("No valid data points to fit. Check the input spectrum for NaN or Inf values.")
-        
-        wave_hs_fit, flux_hs_fit, fluxerr_hs_fit, gal_spectra_fit, qso_spectra_fit = self._prepare(mask=fit_mask, apply_eigen_limits=True)
+        wave_hs_fit, flux_hs_fit, fluxerr_hs_fit, gal_spectra_fit, qso_spectra_fit = self._prepare(apply_eigen_limits=True)
 
         # Fit host + AGN templates
         coefficients = self._host_fitter(gal_spectra_fit, qso_spectra_fit, flux_hs_fit, fluxerr_hs_fit)

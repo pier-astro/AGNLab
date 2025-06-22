@@ -61,7 +61,7 @@ def crop_response_matrix(matrix, matrix_wave, target_wave, renormalize=True):
         raise ValueError("Data wavelengths must be within the wavelength grid")
     # Ensure the data wavelengths have the same step size as the response matrix
     if not np.all(np.isclose(np.diff(target_wave), np.diff(matrix_wave)[0])):
-        warnings.warn("Data wavelengths do not have the same step size as the response matrix. It would be better to rebin the response of the instrument.")
+        warnings.warn("Wavelengths do not have always the same step size as the response matrix.")
 
     indices = np.where([np.any(np.isclose(w, matrix_wave)) for w in target_wave])[0]
     cropped = matrix[np.ix_(indices, indices)]
@@ -93,33 +93,76 @@ class InstRspBuilder:
             raise ValueError("Wavelength grid must be uniform")
         self.wstep = w_diff[0]
     
-    def build_gaussian_matrix(self, lambda_R, R_values, interp_kind='linear'):
-        """Build the response matrix using a Gaussian response function (sparse version)"""
-        self.lambda_R = np.array(lambda_R)
-        self.R_values = np.array(R_values)
-        _R_interp = interp1d(self.lambda_R, self.R_values, kind=interp_kind, bounds_error=False, fill_value=(self.R_values[0], self.R_values[-1]))
+    def _build_sparse_gaussian_matrix(self, sigmas):
+        """
+        Private helper to build a sparse Gaussian response matrix given sigma values for each row.
+
+        Args:
+            sigmas (np.ndarray): An array of sigma values, one for each row in the response matrix.
+        """
         N = len(self.wave_grid)
         data, row_indices, col_indices = [], [], []
-        for i, lambda_real in enumerate(self.wave_grid):
-            R = max(_R_interp(lambda_real), 1.0)
-            delta_lam = lambda_real / R
-            sigma = delta_lam / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
+        lower_edges = self.wave_grid - self.wstep / 2
+        upper_edges = self.wave_grid + self.wstep / 2
+
+        for i, (lambda_real, sigma) in enumerate(zip(self.wave_grid, sigmas)):
             # Compute Gaussian integral over each bin
-            lower_edges = self.wave_grid - self.wstep / 2
-            upper_edges = self.wave_grid + self.wstep / 2
             a = (lower_edges - lambda_real) / (sigma * np.sqrt(2))
             b = (upper_edges - lambda_real) / (sigma * np.sqrt(2))
             integrals = 0.5 * (erf(b) - erf(a))
-            # Normalize row to account for any truncation
-            integrals /= integrals.sum()
+
+            # Normalize row to account for any truncation and prevent division by zero
+            row_sum = integrals.sum()
+            if row_sum > 1e-9:
+                integrals /= row_sum
+
             # Store non-zero values and their indices
             non_zero = integrals > 1e-10  # Threshold to ignore very small values
             data.extend(integrals[non_zero])
             row_indices.extend([i] * np.sum(non_zero))
             col_indices.extend(np.where(non_zero)[0])
-        # Create sparse matrix
+
+        # Create and store the sparse matrix
         self.response_matrix = csr_matrix((data, (row_indices, col_indices)), shape=(N, N))
         return self.response_matrix
+
+    def build_gaussian_matrix(self, lambda_R, R_values, interp_kind='linear'):
+        """Build the response matrix using a variable resolution R."""
+        self.lambda_R = np.array(lambda_R)
+        self.R_values = np.array(R_values)
+        _R_interp = interp1d(self.lambda_R, self.R_values, kind=interp_kind, bounds_error=False, fill_value=(self.R_values[0], self.R_values[-1]))
+
+        R = np.maximum(_R_interp(self.wave_grid), 1.0)
+        delta_lam = self.wave_grid / R
+        sigmas = delta_lam / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
+
+        return self._build_sparse_gaussian_matrix(sigmas)
+
+    def build_fixed_fwhm_matrix(self, fwhm):
+        """Build the response matrix using a fixed FWHM for the Gaussian response."""
+        if fwhm <= 0:
+            raise ValueError("FWHM must be positive.")
+        
+        sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
+        sigmas = np.full(len(self.wave_grid), sigma)
+        return self._build_sparse_gaussian_matrix(sigmas)
+
+    def build_fixed_r_matrix(self, R):
+        """Build the response matrix using a fixed resolution R."""
+        if R <= 0:
+            raise ValueError("Resolution R must be positive.")
+
+        delta_lam = self.wave_grid / R
+        sigmas = delta_lam / (2 * np.sqrt(2 * np.log(2)))
+        return self._build_sparse_gaussian_matrix(sigmas)
+
+    def build_fixed_sigma_matrix(self, sigma):
+        """Build the response matrix using a fixed sigma for the Gaussian response."""
+        if sigma <= 0:
+            raise ValueError("Sigma must be positive.")
+        
+        sigmas = np.full(len(self.wave_grid), sigma)
+        return self._build_sparse_gaussian_matrix(sigmas)
     
     def load_matrix_from_array(self, matrix):
         """Load response matrix from a 2D numpy array or sparse matrix"""
@@ -259,6 +302,7 @@ if __name__=='__main__':
     # Create the response matrix
     builder = InstRspBuilder(rsp_wave)
     full_response_matrix = builder.build_gaussian_matrix(resp_lambda, resp_R)
+    full_response_matrix = builder.build_fixed_fwhm_matrix(10.0)
 
     # # Save and load the response matrix
     # builder.save_to_fits('response_matrix.fits')

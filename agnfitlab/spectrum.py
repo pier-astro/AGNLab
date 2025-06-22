@@ -9,13 +9,13 @@ from sherpa.fit import Fit
 from sherpa.optmethods import LevMar
 from sherpa.stats import Chi2
 import pandas as pd
-import glob
-import json
+import yaml
 import os
-from tqdm.notebook import tqdm
+from . import tqdm # correct tqdm version based on the environment __init__ have setup
 import multiprocess as mp
+import warnings
 
-from .tools import resample_spectrum, downsample_wave, vac_to_air
+from .tools import resample_spectrum, downsample_wave, vac_to_air, get_add_comps
 
 script_dir = os.path.dirname(__file__)
 sfdpath = os.path.join(script_dir, "sfddata")
@@ -31,8 +31,14 @@ class Spectrum():
         # Result of AGN-Host decomposition
         self.host = None
         self.agn = None
+        
+        self.name = None
+        self.ra = None
+        self.dec = None
+        self.z = None
+        self.ebv = None
 
-    def DeRedden(self, ebv=0):
+    def DeRedden(self, ebv=None):
         """
         Function for dereddening  a flux vector  using the parametrization given by
         [Fitzpatrick (1999)](https://iopscience.iop.org/article/10.1086/316293).
@@ -45,17 +51,21 @@ class Spectrum():
              by default 0
         """
         if self._dereddened:
-            # warnings.warn("Spectrum is already dereddened. Skipping dereddening step.", UserWarning)
-            print("Spectrum is already dereddened. Skipping dereddening step.")
+            warnings.warn("Spectrum is already dereddened. Skipping dereddening step.", UserWarning)
         else:
-            if ebv != 0:
-                self.flux = pyasl.unred(self.wave, self.flux, ebv)
+            self.input_wave = self.wave.copy() if not hasattr(self, 'input_wave') else self.input_wave
+            self.input_flux = self.flux.copy() if not hasattr(self, 'input_flux') else self.input_flux
+            self.input_fluxerr = self.fluxerr.copy() if not hasattr(self, 'input_fluxerr') else self.input_fluxerr
+
+            if ebv is not None:
+                self.ebv = ebv
             else:
                 m = sfdmap.SFDMap(sfdpath)
-                self.flux = pyasl.unred(self.wave, self.flux, m.ebv(self.ra, self.dec))
+                self.ebv = m.ebv(self.ra, self.dec)
+            self.flux = pyasl.unred(self.wave, self.flux, self.ebv)
             self._dereddened = True
 
-    def zCorrection(self, redshift=0):
+    def zCorrection(self, redshift=None):
         """
         The zCorrection() function corrects the flux for redshift.
         It takes in a redshift and corrects the wavelength, flux, and error arrays by that given redshift.
@@ -65,10 +75,12 @@ class Spectrum():
         :return: The wavelength, flux and error arrays for the object at a redshift of z=0.
         """
         if self._zcorrected:
-            # warnings.warn("Spectrum is already redshift corrected. Skipping zCorrection step.", UserWarning)
-            print("Spectrum is already redshift corrected. Skipping zCorrection step.")
+            warnings.warn("Spectrum is already redshift corrected. Skipping zCorrection step.", UserWarning)
         else:
-            if redshift != 0:
+            self.input_wave = self.wave.copy() if not hasattr(self, 'input_wave') else self.input_wave
+            self.input_flux = self.flux.copy() if not hasattr(self, 'input_flux') else self.input_flux
+            self.input_fluxerr = self.fluxerr.copy() if not hasattr(self, 'input_fluxerr') else self.input_fluxerr
+            if redshift is not None:
                 self.z = redshift
             self.wave = self.wave / (1 + self.z)
             self.flux = self.flux * (1 + self.z)
@@ -76,6 +88,34 @@ class Spectrum():
                 self.fluxerr = self.fluxerr * (1 + self.z)
             self.fwhm = self.fwhm / (1 + self.z)
             self._zcorrected = True
+
+    def vac_to_air(self):
+        """
+        Convert vacuum to air wavelengths
+        :param lam_vac - Wavelength in Angstroms
+        :return: lam_air - Wavelength in Angstroms
+        """
+        if self._vac_to_air_corrected:
+            warnings.warn("Spectrum is already converted to air wavelengths. Skipping vac_to_air step.", UserWarning)
+        else:
+            self.input_wave = self.wave.copy() if not hasattr(self, 'input_wave') else self.input_wave
+            self.wave = vac_to_air(self.wave)
+            self._vac_to_air_corrected = True
+
+    def reset(self):
+        """
+        Reset the spectrum to its original state before any corrections.
+        This will restore the original wavelength, flux, and flux error arrays.
+        """
+        if hasattr(self, 'input_wave'):
+            self.wave = self.input_wave
+            self.flux = self.input_flux
+            self.fluxerr = self.input_fluxerr
+            self._zcorrected = False
+            self._dereddened = False
+            self._vac_to_air_corrected = False
+        else:
+            raise ValueError("No input data found. Please ensure the spectrum has been initialized with input data.")
 
     def rebin(self, factor:int=None, new_wave=None, fill=np.nan, method='flux-conserving'):
         """
@@ -99,8 +139,8 @@ class Spectrum():
         if wbounds is not None:
             wmin, wmax = wbounds
             wmask = (self.wave > wmin) & (self.wave < wmax)
-        elif wmask is None:
-            wmask = (self.wave > 4050) & (self.wave < 7300)
+        elif wmask is not None:
+            wmask = wmask
         else:
             raise ValueError("Either wbounds or wmask must be provided.")
         self.wave = self.wave[wmask]
@@ -134,26 +174,9 @@ class Spectrum():
         if created_fig:
             plt.show()
         
-    def vac_to_air(self):
-        """
-        Convert vacuum to air wavelengths
-        :param lam_vac - Wavelength in Angstroms
-        :return: lam_air - Wavelength in Angstroms
-        """
-        self.wave = vac_to_air(self.wave)
-        self._vac_to_air_corrected = True
-
-    def _setup_spec4fit(self):
-        self._wave_fit = self.wave
-        self._flux_fit = self.flux
-        self._fluxerr_fit = self.fluxerr
-        # If there are nan values in the flux mask them
-        if np.any(np.isnan(self.flux)):
-            mask = np.isfinite(self.flux)
-            self._wave_fit = self.wave[mask]
-            self._flux_fit = self.flux[mask]
-            if self.fluxerr is not None:
-                self._fluxerr_fit = self.fluxerr[mask]
+    def _check_spec4fit(self):
+        if np.any(np.isnan(self.wave)) or np.any(np.isnan(self.flux)) or np.any(np.isnan(self.fluxerr)):
+            raise ValueError("Spectrum contains NaN values in wave or flux. Please clean the data before fitting.")
 
     def fit(self, model, ntrial=1, stat=Chi2(), method=LevMar()):
         """
@@ -165,8 +188,8 @@ class Spectrum():
         :param ntrial=1: Used to Specify the number of times we want to repeat the fit.
         :return: The results of the fit.
         """
-        self._setup_spec4fit()
-        dataobj = Data1D("AGN", self._wave_fit, self._flux_fit, self._fluxerr_fit)
+        self._check_spec4fit()
+        dataobj = Data1D("AGN", self.wave, self.flux, self.fluxerr)
         gfit = Fit(dataobj, model, stat=stat, method=method)
         gres = gfit.fit()
         statistic=gres.dstatval
@@ -182,51 +205,56 @@ class Spectrum():
         self.gres = gres
         self.dataobj = dataobj
         self.model = model
+
+        try:
+            self.components = get_add_comps(model)
+        except:
+            warnings.warn("Error extracting components from the model. Try manually the tools.get_add_comp() function.", UserWarning)
+
         return gfit
     
-    def save_json(self, suffix="pars"):
+    def save_pars(self, filename=None):
         """
-        The save_json function saves the parameter values in a JSON file.
+        Saves the parameter values in a YAML file.
         The filename is constructed from the name of the model and either 'pars' or 'samples'.
-        
-        :param self: Used to Refer to the object itself.
-        :param suffix='pars': Used to Specify the name of the file that is saved.
+
+        :param self: Reference to the object itself.
+        :param suffix='pars': Suffix for the filename.
         :return: A dictionary of the parameter names and values.
         """
-        dicte = zip(self.gres.parnames, self.gres.parvals)
-        res = dict(dicte)
-        filename = self.name + "_" + suffix + ".json"
+        if filename is None:
+            name = self.name if self.name is not None else "spectrum"
+            filename = name + "_pars.yaml"
+        else:
+            if not filename.endswith('.yaml'):
+                filename += '.yaml'
+        res = dict(zip(self.gres.parnames, self.gres.parvals))
         with open(filename, "w") as fp:
-            json.dump(res, fp)
+            yaml.dump(res, fp, default_flow_style=False)
 
 
 
 
-    def _mc_resampling_NOparallelized(self, nsample=10, save_csv=True, filename=None, stat=Chi2(), method=LevMar()):
+    def _mc_resampling_NOparallelized(self, nsample=10, stat=Chi2(), method=LevMar()):
         if self.fluxerr is None:
             raise ValueError("Flux error is not defined. Please provide flux error for Monte Carlo sampling.")
-        self._setup_spec4fit()
+        self._check_spec4fit()
 
         dict_list = []
         for i in tqdm(range(nsample), desc="Monte Carlo Sampling"):
             # Perturb the flux based on the input error
-            flux_perturbed = np.random.normal(loc=self._flux_fit, scale=self._fluxerr_fit)
+            flux_perturbed = np.random.normal(loc=self.flux, scale=self.fluxerr)
             # Fit the model to the perturbed data
-            d_perturbed = Data1D("AGN", self._wave_fit, flux_perturbed, self._fluxerr_fit)
+            d_perturbed = Data1D("AGN", self.wave, flux_perturbed, self.fluxerr)
             gfit_perturbed = Fit(d_perturbed, self.model, stat=stat, method=method)
             gres_perturbed = gfit_perturbed.fit()
             dicte = zip(gres_perturbed.parnames, gres_perturbed.parvals)
             res = dict(dicte)
             dict_list.append(res)
         df=pd.DataFrame(dict_list)
+        return df
 
-        if save_csv:
-            if filename is None:
-                filename = self.name + '_mc_pars.csv'
-            df.to_csv(filename)
-        self.mc_pars = df
-
-    def _mc_resampling_parallel(self, nsample=10, save_csv=True, filename=None, stat=Chi2(), method=LevMar(), ncpu=None):
+    def _mc_resampling_parallel(self, nsample=10, stat=Chi2(), method=LevMar(), ncpu=None):
         if self.fluxerr is None:
             raise ValueError("Flux error is not defined. Please provide flux error for Monte Carlo sampling.")
         self._setup_spec4fit()
@@ -236,9 +264,9 @@ class Spectrum():
         base_seed = np.random.randint(0, 2**32)
         args_list = [
             (
-                self._wave_fit,
-                self._flux_fit,
-                self._fluxerr_fit,
+                self.wave,
+                self.flux,
+                self.fluxerr,
                 self.model,
                 stat,
                 method,
@@ -247,6 +275,7 @@ class Spectrum():
             for i in range(nsample)
         ]
 
+        ### --- Worker ---
         def _mc_worker(args):
             # from sherpa.data import Data1D
             # from sherpa.fit import Fit
@@ -258,18 +287,14 @@ class Spectrum():
             gfit = Fit(d_perturbed, model, stat=stat, method=method)
             gres = gfit.fit()
             return dict(zip(gres.parnames, gres.parvals))
+        ### --- End Worker ---
 
         dict_list = []
         with mp.Pool(processes=ncpu) as pool:
             for res in tqdm(pool.imap_unordered(_mc_worker, args_list), total=nsample, desc="Monte Carlo Sampling"):
                 dict_list.append(res)
-
+        
         df = pd.DataFrame(dict_list)
-        if save_csv:
-            if filename is None:
-                filename = self.name + '_mc_pars.csv'
-            df.to_csv(filename, index=False)
-        self.mc_pars = df
         return df
 
     def mc_resampling(self, nsample=10, save_csv=True, filename=None, stat=Chi2(), method=LevMar(), ncpu=None):
@@ -298,10 +323,17 @@ class Spectrum():
         """
         if ncpu is None:
             ncpu = max(1, mp.cpu_count() - 3)
+
         if ncpu > 1:
-            return self._mc_resampling_parallel(nsample, save_csv, filename, stat, method, ncpu)
+            df = self._mc_resampling_parallel(nsample, stat, method, ncpu)
         else:
-            return self._mc_resampling_NOparallelized(nsample, save_csv, filename, stat, method)
+            df = self._mc_resampling_NOparallelized(nsample, stat, method)
+
+        if save_csv:
+            if filename is None and self.name is not None:
+                filename = self.name + '_mc_pars.csv'
+            df.to_csv(filename, index=False)
+        self.mc_pars = df
         
 
 
@@ -331,7 +363,7 @@ class make_spectrum(Spectrum):
         dlam = (frac - 1) * self.wave
         self.fwhm = 2.355 * dlam
 
-class read_text(Spectrum):
+class read_txt(Spectrum):
     def __init__(self, filename, ra=None, dec=None, z=None, name='spectrum'):
         super().__init__()
         try:

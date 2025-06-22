@@ -1,14 +1,5 @@
 __version__ = "0.1.0"
 
-### Import tqdm conditionally based on the environment
-try:
-    # Fails if not in an IPython/Jupyter environment
-    get_ipython()
-    from tqdm.notebook import tqdm # Use the notebook-friendly version
-except (NameError, ImportError):
-    from tqdm import tqdm # Fallback to the standard console version
-
-
 from .spectrum import *
 from .tools import *
 

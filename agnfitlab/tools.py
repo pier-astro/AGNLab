@@ -184,67 +184,13 @@ def compute_reduced_chi2(data, data_err, model, npars):
 
 
 
-# ### BASIC DEFINITION
-# def get_comps(model):
-#     components = []
-#     # Base case: if the model is a leaf node (no parts), return it in a list
-#     if not hasattr(model, 'parts'):
-#         return [model]
-    
-#     def traverse_parts(parts):
-#         for part in parts:
-#             if hasattr(part, 'parts'):
-#                 traverse_parts(part.parts)
-#             else:
-#                 components.append(part)
-    
-#     if hasattr(model, 'parts'):
-#         traverse_parts(model.parts)
-    
-#     return components
-
-# def get_add_comps(model):
-#     """
-#     Recursively decompose a Sherpa compound model into additive components.
-    
-#     Parameters:
-#     model (Sherpa model instance): The model to decompose.
-    
-#     Returns:
-#     list: A list of Sherpa model instances representing each additive component.
-#     """
-#     # Base case: if the model is a leaf node (no parts), return it in a list
-#     if not hasattr(model, 'parts'):
-#         return [model]
-    
-#     # Split into left and right parts
-#     left_part, right_part = model.parts
-#     op = model.opstr  # Get the operation as a string
-    
-#     # Recursively get components for left and right parts
-#     left_components = get_add_comps(left_part)
-#     right_components = get_add_comps(right_part)
-    
-#     # Handle additive operations
-#     if op in ('+', '-'):
-#         # # For subtraction, negate the right components
-#         # if op == '-':
-#         #     right_components = [(-1) * comp for comp in right_components]
-#         return left_components + right_components
-#     else:
-#         # Handle multiplicative (or other) operations by combining all pairs
-#         components = []
-#         for lcomp in left_components:
-#             for rcomp in right_components:
-#                 components.append(model.op(lcomp, rcomp))
-#         return components
 
 ### RESPONSE MODEL AWARE VERSION
 def get_comps(model):
     """
     Recursively decompose a Sherpa compound model into its components.
     """
-    is_rsp_mod = isinstance(model, inst.ConvolvedModel)
+    is_rsp_mod = isinstance(model, instrument.ConvolvedModel)
     rsp_model = None
     if is_rsp_mod:
         rsp_model = model.response_model

@@ -4,6 +4,7 @@ import pandas as pd
 import glob
 from pathlib import Path
 import string
+import yaml
 
 import astropy.units as u
 import astropy.constants as const
@@ -22,6 +23,56 @@ from sherpa.astro.models import _modelfcts as _astro_modelfuncs # Sherpa impleme
 c = const.c.to(u.km/u.s).value # Speed of light in km/s
 script_dir = os.path.dirname(__file__) # get the directory of the current script
 input_path = os.path.join(script_dir, "input")
+
+def get_model_free_params(model):
+    thawed_pars = model.get_thawed_pars()
+    cp_names = []
+    parkeys = []
+    parvals = []
+    for p in thawed_pars:
+        comp = p.modelname
+        name = p.name
+        cp_name = f'{comp}.{name}'
+        if cp_name in cp_names:
+            i = 2
+            cp_name = f'{comp}_{i}.{name}'
+            while cp_name in cp_names:
+                i += 1
+                cp_name = f'{comp}_{i}.{name}'
+        cp_names.append(cp_name)
+        parkeys.append(cp_name)
+        parvals.append(p.val)
+    pars = dict(zip(parkeys, parvals))
+    return pars
+
+def _convert_np(obj):
+    if isinstance(obj, dict):
+        return {k: _convert_np(v) for k, v in obj.items()}
+    elif isinstance(obj, (np.generic, np.ndarray)):
+        return obj.item()
+    else:
+        return obj
+def save_params(model, filename):
+    pars_dict = get_model_free_params(model)
+    with open(filename, 'w') as f:
+        yaml.dump(_convert_np(pars_dict), f, sort_keys=False)
+
+def read_params(filename):
+    if not os.path.exists(filename):
+        raise FileNotFoundError(f"File {filename} does not exist.")
+    with open(filename, 'r') as f:
+        pars_dict = yaml.safe_load(f)
+    return pars_dict
+
+def load_params(model, filename):
+    if not os.path.exists(filename):
+        raise FileNotFoundError(f"File {filename} does not exist.")
+    params_dict = read_params(filename)
+    # Get an array from all the values
+    values = np.array(list(params_dict.values()))
+    model.thawedpars = values
+
+
 
 def init_lines_csv(wmin=4000, wmax=7000, dirpath='./lines', overwrite=False):
     """

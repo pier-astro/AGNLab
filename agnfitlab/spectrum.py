@@ -11,16 +11,18 @@ from sherpa.stats import Chi2
 import pandas as pd
 import yaml
 import os
-from . import tqdm # correct tqdm version based on the environment __init__ have setup
+from tqdm.auto import tqdm, trange
 import multiprocess as mp
 import warnings
 
-from .tools import resample_spectrum, downsample_wave, vac_to_air, get_add_comps
+from .tools import resample_spectrum, downsample_wave, vac_to_air, get_add_comps, get_comps
+from .models import save_params, read_params
 
 script_dir = os.path.dirname(__file__)
 sfdpath = os.path.join(script_dir, "sfddata")
 c = const.c.to(u.km/u.s).value # Speed of light in km/s
 plt.rcParams['axes.xmargin'] = 0
+
 
 class Spectrum():
     def __init__(self):
@@ -37,6 +39,8 @@ class Spectrum():
         self.dec = None
         self.z = None
         self.ebv = None
+
+        self.model = None
 
     def DeRedden(self, ebv=None):
         """
@@ -178,7 +182,7 @@ class Spectrum():
         if np.any(np.isnan(self.wave)) or np.any(np.isnan(self.flux)) or np.any(np.isnan(self.fluxerr)):
             raise ValueError("Spectrum contains NaN values in wave or flux. Please clean the data before fitting.")
 
-    def fit(self, model, ntrial=1, stat=Chi2(), method=LevMar()):
+    def fit(self, model, ntrial=1, stat=Chi2(), method=LevMar(), append_comps=True):
         """
         The fit function fits a model to the data. 
         It returns a tuple of (model, fit results).
@@ -190,50 +194,43 @@ class Spectrum():
         """
         self._check_spec4fit()
         dataobj = Data1D("AGN", self.wave, self.flux, self.fluxerr)
-        gfit = Fit(dataobj, model, stat=stat, method=method)
-        gres = gfit.fit()
-        statistic=gres.dstatval
-        if ntrial > 1:
-            i=0
-            while i < ntrial:
+
+        with trange(ntrial, desc="Fitting trials") as bar:
+            for i in bar:
                 gfit = Fit(dataobj, model, stat=stat, method=method)
                 gres = gfit.fit()
-                print(f"Iteration: {i+1}")
-                if gres.dstatval==statistic:
-                    break
-                i+=1
+                # print(gfit.calc_stat())
+
         self.gres = gres
         self.dataobj = dataobj
         self.model = model
-
-        try:
-            self.components = get_add_comps(model)
-        except:
-            warnings.warn("Error extracting components from the model. Try manually the tools.get_add_comp() function.", UserWarning)
-
         return gfit
-    
-    def save_pars(self, filename=None):
-        """
-        Saves the parameter values in a YAML file.
-        The filename is constructed from the name of the model and either 'pars' or 'samples'.
 
-        :param self: Reference to the object itself.
-        :param suffix='pars': Suffix for the filename.
-        :return: A dictionary of the parameter names and values.
-        """
+    def get_components(self, only_additive=True):
+        if only_additive:
+            self.components = get_add_comps(self.model)
+        else:
+            self.components = get_comps(self.model)
+    
+    def save_params(self, filename=None):
         if filename is None:
             name = self.name if self.name is not None else "spectrum"
             filename = name + "_pars.yaml"
         else:
             if not filename.endswith('.yaml'):
                 filename += '.yaml'
-        res = dict(zip(self.gres.parnames, self.gres.parvals))
-        with open(filename, "w") as fp:
-            yaml.dump(res, fp, default_flow_style=False)
-
-
-
+        save_params(self.model, filename)
+        
+    def load_params(self, filename):
+        # Rasise an error to set the model before if self.model does not exist
+        if self.model is None:
+            raise AttributeError("Model is not set in the Spectrum object. Please set the model before loading parameters.")
+        if not os.path.exists(filename):
+            raise FileNotFoundError(f"File {filename} does not exist.")
+        params_dict = read_params(filename)
+        # Get an array from all the values
+        values = np.array(list(params_dict.values()))
+        self.model.thawedpars = values
 
     def _mc_resampling_NOparallelized(self, nsample=10, stat=Chi2(), method=LevMar()):
         if self.fluxerr is None:

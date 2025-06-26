@@ -796,7 +796,7 @@ class BrokenPowerlaw(model.ArithmeticModel):
 
 
 ### RESPONSE MODEL AWARE VERSION
-def get_comps(model):
+def get_comps(model, get_source=False):
     """
     Recursively decompose a Sherpa compound model into its components.
     """
@@ -821,12 +821,12 @@ def get_comps(model):
     if hasattr(model, 'parts'):
         traverse_parts(model.parts)
 
-    if is_rsp_mod:
+    if is_rsp_mod and ~get_source:
         components = [rsp_model(comp) for comp in components]
 
     return components
 
-def get_add_comps(model):
+def get_add_comps(model, get_source=False):
     """
     Recursively decompose a Sherpa compound model into additive components.
     
@@ -870,7 +870,7 @@ def get_add_comps(model):
         result = components
 
     # Add logic for response model if needed
-    if is_rsp_mod:
+    if is_rsp_mod and ~get_source:
         result = [rsp_model(comp) for comp in result]
 
     return result

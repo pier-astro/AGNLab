@@ -175,3 +175,7 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# AGNLab specific
+agnlab/_lab/
+_mytests

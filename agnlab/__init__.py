@@ -1,12 +1,14 @@
 __version__ = "0.1.0"
 
-from .spectrum import *
+from .spectrum import make_spectrum, read_txt
 from .tools import *
 
 from . import models
 from . import instrument
 from . import host
 from . import cubefit
+from . import spectrum
+from . import tools
 
 
 

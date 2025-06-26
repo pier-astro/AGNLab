@@ -382,7 +382,7 @@ class CubeAnalyzer:
 
     def save_model(self, filename):
         if self.model is None:
-            raise ValueError("No model to save. Please fit the cube first.")
+            raise ValueError("No model to save. Please setup CubeAnalyzer.model first.")
         if not filename.endswith('.dill'):
             filename += '.dill'
         with open(filename, 'wb') as f:

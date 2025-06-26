@@ -1,6 +1,6 @@
-# AGNFitLab
+# AGNLab
 
-**AGNFitLab** is an extension of the [`AGNFantasy`](https://fantasy-agn.readthedocs.io/en/latest/) package, designed to provide enhanced tools for modeling AGN spectra using the [`sherpa`](https://sherpa.readthedocs.io/en/4.17.0/install.html) fitting environment in Python.
+**AGNLab** is an extension of the [`AGNFantasy`](https://fantasy-agn.readthedocs.io/en/latest/) package, designed to provide enhanced tools for modeling AGN spectra using the [`sherpa`](https://sherpa.readthedocs.io/en/4.17.0/install.html) fitting environment in Python.
 
 It wraps and extends the original AGNFantasy package, offering additional modeling features and improved flexibility, especially useful for handling instrument responses and alternate line profiles like Lorentzian and Voigt.
 
@@ -8,15 +8,14 @@ It wraps and extends the original AGNFantasy package, offering additional modeli
 
 ## ⚙️ Requirements
 
-Before using AGNFitLab, make sure you have the following packages installed:
+Before using AGNLab, make sure you have correctly installed `sherpa>=4.16`:
 
 - [`sherpa`](https://parameter-sherpa.readthedocs.io/en/latest/gettingstarted/installation.html)
-- [`AGNFantasy`](https://fantasy-agn.readthedocs.io/en/latest/install.html)
 
-> ⚠️ **Important Note for macOS/Apple Silicon users**  
+<!-- > ⚠️ **Important Note for macOS/Apple Silicon users**  
 > AGNFantasy has strict and sometimes incompatible requirements on certain platforms (e.g. Apple Silicon).  
 > However, the PyPI distribution only enforces dependencies from `sherpa`, and once `sherpa` is installed, most AGNFantasy functionality works fine.  
-> AGNFitLab is designed to minimize dependence on AGNFantasy internals, so you may safely bypass some of the strict requirements.
+> AGNLab is designed to minimize dependence on AGNFantasy internals, so you may safely bypass some of the strict requirements. -->
 
 ---
 ## 🚀 Quickstart
@@ -25,50 +24,46 @@ Before using AGNFitLab, make sure you have the following packages installed:
 Clone or download the repository.
 Place it in a directory visible to Python (`PYTHONPATH`) or install it locally via:
 ```bash
-pip install /path/to/AGNFitLab
+pip install /path/to/AGNLab
 ```
 
 ### 📦 Model Setup Example
 Import the models in your code and use them as standard `sherpa` models:
 ```python
-import fantasy_agn.models as FantasyModels
-import agnfitlab.models as AGNFitLabModels
+import agnlab.models as models
 
 # Set up folder structure
-path_to_folder = 'testfit/'
-FantasyModels.create_input_folder(path_to_folder=path_to_folder)
-AGNFitLabModels.set_path(path_to_folder)
+models.init_lines_csv(wmin=4000, wmax=8000)
 
-# Default Fantasy model
-narrow = FantasyModels.create_fixed_model(
+# Default Gauss model
+narrow = models.TiedGaussLines(
     ['hydrogen.csv'], name='Narrow',
     fwhm=500, min_fwhm=0., max_fwhm=800.,
     offset=0, min_offset=-300, max_offset=300,
-    amplitude=1., min_amplitude=0., max_amplitude=100)
+    amp=1., min_amp=0., max_amp=100)
 
-# Improved Fantasy model
-narrow_new = AGNFitLabModels.create_fixed_model(
+# Lorentzian Model
+narrow_l = models.TiedLorentzLines(
     ['hydrogen.csv'], name='Narrow',
     fwhm=500, min_fwhm=0., max_fwhm=800.,
     offset=0, min_offset=-300, max_offset=300,
-    amplitude=1., min_amplitude=0., max_amplitude=100,
-    profile='gauss') # Change to 'lorentz' for Lorentzian profiles
+    amp=1., min_amp=0., max_amp=100)
 
 # Voigt profile model
-narrow_voigt = AGNFitLabModels.create_voigt_fixed_model(
+narrow_v = models.TiedVoigtLines(
     ['hydrogen.csv'], name='Narrow',
     fwhm_g=100, min_fwhm_g=100, max_fwhm_g=3000,
     fwhm_l=100, min_fwhm_l=100, max_fwhm_l=3000,
     offset=0, min_offset=-3000, max_offset=3000,
-    amplitude=10, min_amplitude=0, max_amplitude=100)
+    amp=10, min_amp=0, max_amp=100)
 
-model = narrow_new  # Choose any model or a combination of them
+model = narrow_v + narrow  # Choose any model or a combination of them
 ```
 
 ### 📦 Instrument Response Integration
 
 ```python
-import agnfitlab.instrument as inst
+import agnlab.instrument as inst
 
 # Load instrument response (e.g., MUSE)
 rsploader = inst.InstRspLoader(inst='MUSE')
@@ -88,10 +83,12 @@ In this implementation, both the step size of the 'true' energy and the instrume
 
 The instrument module has implemented a response builder that allows you to easily construct the response and save it in the local archive of instrumental responses.
 
-The `InstRspBuilder.build_gaussian_matrix()` takes as arguments an array of wavelengths and an array of spectral resolutions $R = \dfrac{\lambda}{\Delta \lambda}$. Based on these, it interpolates along the wavelength axis and builds the response assuming the Line Response Function is Gaussian.
+The `InstRspBuilder.build_fixed_fwhm_matrix()`, `InstRspBuilder.build_fixed_r_matrix()` and `InstRspBuilder.build_fixed_sigma_matrix()` allow the user to create Gaussian response matrices with fixed FWHM, $R$, and $\sigma$ respectively.
+
+The `InstRspBuilder.build_gaussian_matrix()` takes as arguments an array of wavelengths and an array of spectral resolutions $R = \dfrac{\lambda}{\Delta \lambda}$. Based on these, it interpolates along the wavelength axis and builds the response assuming, again, the Line Response Function is Gaussian.
 
 ```python
-import agnfitlab.instrument as inst
+import agnlab.instrument as inst
 
 # Define resp_lambda and resp_R as 1D arrays
 # e.g. resp_lambda = np.array([5000, 5500, 6000])
@@ -108,7 +105,7 @@ builder.save_and_register('INSTRSP.fits', instrument_name='INST', clobber=True)
 
 Alternatively, the user can build the response matrix manually as a 2D array and load it:
 ```python
-import agnfitlab.instrument as inst
+import agnlab.instrument as inst
 
 # Define the instrument wavelength grid as inst_wav and the matrix as rsp_matrix
 

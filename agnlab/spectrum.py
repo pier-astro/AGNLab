@@ -10,6 +10,7 @@ from sherpa.optmethods import LevMar
 from sherpa.stats import Chi2
 import pandas as pd
 import yaml
+import dill
 import os
 from tqdm.auto import tqdm, trange
 import multiprocess as mp
@@ -231,6 +232,18 @@ class Spectrum():
         # Get an array from all the values
         values = np.array(list(params_dict.values()))
         self.model.thawedpars = values
+
+    def save_model(self, filename):
+        if self.model is None:
+            raise ValueError("No model to save. Please setup Spectrum.model first.")
+        if not filename.endswith('.dill'):
+            filename += '.dill'
+        with open(filename, 'wb') as f:
+            dill.dump(self.model, f)
+
+    def load_model(self, filename):
+        with open(filename, 'rb') as f:
+            self.model = dill.load(f)
 
     def _mc_resampling_NOparallelized(self, nsample=10, stat=Chi2(), method=LevMar()):
         if self.fluxerr is None:

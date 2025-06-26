@@ -1,6 +1,11 @@
 import numpy as np
 import warnings
 
+import matplotlib.pyplot as plt
+from adjustText import adjust_text
+from astropy import units as u
+from astropy import constants as const
+
 def make_bins(wavs):
     edges = np.zeros(wavs.shape[0]+1)
     widths = np.zeros(wavs.shape[0])
@@ -179,3 +184,28 @@ def compute_reduced_chi2(data, data_err, model, npars):
     chi2 = np.sum(residuals**2)
     dof = len(data) - npars  # degrees of freedom
     return chi2 / dof if dof > 0 else np.nan  # Avoid division by zero
+
+
+
+def plot_lines(component, ax=None, show_name=True, text_y_frac=0.95, color='grey', lw=0.75, ls='--', **kwargs):
+    if ax is None:
+        ax = plt.gca()
+    if not hasattr(component, 'dft'):
+        raise ValueError(f"Component {component.name} does not have a lines table in the 'dft' attribute.")
+    
+    c = const.c.to(u.km/u.s).value 
+    offs_kms = component.offs_kms.val
+
+    texts = []
+    for i in range(len(component.dft)):
+        linepos = component.dft["position"][i]
+        dw = offs_kms * linepos / c
+        linepos += dw
+        ax.axvline(linepos, color=color, lw=lw, ls=ls, **kwargs)
+        if show_name:
+            text_y = ax.get_ylim()[1] * text_y_frac
+            name = component.dft["line"][i]
+            text = ax.text(linepos, text_y, name, color=color, ha='center', va='top', rotation=90)
+            texts.append(text)
+    if texts:
+        adjust_text(texts, ax=ax) # Adjust text to avoid overlap

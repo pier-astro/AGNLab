@@ -25,7 +25,7 @@ from . import instrument
 
 c = const.c.to(u.km/u.s).value # Speed of light in km/s
 script_dir = os.path.dirname(__file__) # get the directory of the current script
-input_path = os.path.join(script_dir, "input")
+input_path = os.path.join(script_dir, "lines_csv")
 
 
 def init_lines_csv(wmin=4000, wmax=7000, dirpath='./lines', overwrite=False):
@@ -73,8 +73,8 @@ def gaussian(pars, x):
     :param x: array of x values
     :return: array of y values
     """
-    fwhm, center, ampl = pars
-    return ampl * np.exp(-0.5 * ((x - center) / (fwhm / 2.35482)) ** 2)
+    fwhm, center, amp = pars
+    return amp * np.exp(-0.5 * ((x - center) / (fwhm / 2.35482)) ** 2)
 
 class GaussianLine(model.ArithmeticModel):
     def __init__(self, name='gauss',
@@ -100,7 +100,7 @@ class GaussianLine(model.ArithmeticModel):
 
     # def guess(self, dep, *args, **kwargs):
     #     norm = guess_amplitude(dep, *args)
-    #     param_apply_limits(norm, self.ampl, **kwargs)
+    #     param_apply_limits(norm, self.amp, **kwargs)
     #     pos = get_position(dep, *args)
     #     offs_kms = (pos - self.pos.val) / self.pos.val * c
     #     param_apply_limits(offs_kms, self.offs_kms, **kwargs)
@@ -111,13 +111,13 @@ class GaussianLine(model.ArithmeticModel):
     # @modelCacher1d
     def calc(self, p, x, *args, **kwargs):
         kwargs = clean_kwargs1d(self, kwargs)
-        ampl = p[0]
+        amp = p[0]
         pos = p[1]
         offs_kms = p[2]
         fwhm_kms = p[3]
         center = pos + offs_kms/c * pos
         fwhm = fwhm_kms/c * center
-        p = (fwhm, center, ampl)
+        p = (fwhm, center, amp)
         return gaussian(pars=p, x=x)
     
 class GaussEmLine(GaussianLine):
@@ -130,7 +130,7 @@ class GaussEmLine(GaussianLine):
         super().__init__(name=name, pos=pos, amp=amp, min_amp=min_amp, max_amp=max_amp,
                          fwhm=fwhm, min_fwhm=min_fwhm, max_fwhm=max_fwhm,
                          offset=offset, min_offset=min_offset, max_offset=max_offset)
-        self.amp.hard_min = 0 # Set the hard minimum for the amplitude to 0, so it cannot be an absorption line
+        self.amp._hard_min = 0 # Set the hard minimum for the amplitude to 0, so it cannot be an absorption line
 
 class GaussAbsLine(GaussianLine): # Inherit everything from GaussianLine and just change the hard_maximum for the amplitude to 0
     def __init__(self, name='abs_gauss',
@@ -142,7 +142,7 @@ class GaussAbsLine(GaussianLine): # Inherit everything from GaussianLine and jus
         super().__init__(name=name, pos=pos, amp=amp, min_amp=min_amp, max_amp=max_amp,
                          fwhm=fwhm, min_fwhm=min_fwhm, max_fwhm=max_fwhm,
                          offset=offset, min_offset=min_offset, max_offset=max_offset)
-        self.amp.hard_max = 0 # Set the hard maximum for the amplitude to 0, so it cannot be an emission line
+        self.amp._hard_max = 0 # Set the hard maximum for the amplitude to 0, so it cannot be an emission line
 
 
 
@@ -150,8 +150,8 @@ class GaussAbsLine(GaussianLine): # Inherit everything from GaussianLine and jus
 
 # NOTE: The lorentzian() implementation of the Lorentzian profile uses the peak flux as a parameter, while the Sherpa implementation uses the integrated flux.
 def lorentzian(pars, x):
-    fwhm, center, ampl = pars
-    return ampl * ((fwhm / 2.0) ** 2) / ((x - center) ** 2 + (fwhm / 2.0) ** 2)
+    fwhm, center, amp = pars
+    return amp * ((fwhm / 2.0) ** 2) / ((x - center) ** 2 + (fwhm / 2.0) ** 2)
 
 class LorentzianLine(model.ArithmeticModel):
     def __init__(self, name='lorentz',
@@ -186,35 +186,35 @@ class LorentzianLine(model.ArithmeticModel):
     #     norm = guess_amplitude(dep, *args)
     #     if fwhm != 10:
     #         aprime = norm['val'] * self.fwhm.val * np.pi / 2.
-    #         ampl = {'val': aprime,
+    #         amp = {'val': aprime,
     #                 'min': aprime / _guess_ampl_scale,
     #                 'max': aprime * _guess_ampl_scale}
-    #         param_apply_limits(ampl, self.ampl, **kwargs)
+    #         param_apply_limits(amp, self.amp, **kwargs)
     #     else:
-    #         param_apply_limits(norm, self.ampl, **kwargs)
+    #         param_apply_limits(norm, self.amp, **kwargs)
 
     # ## LORENTZIAN WITH INTEGRATED FLUX AS PARAMETER
     # @modelCacher1d
     # def calc(self, p, *args, **kwargs):
     #     kwargs = clean_kwargs1d(self, kwargs)
-    #     ampl = p[0]
+    #     amp = p[0]
     #     pos = p[1]
     #     offs_kms = p[2]
     #     fwhm_kms = p[3]
     #     center = pos + offs_kms/c * pos
     #     fwhm = fwhm_kms/c * center
-    #     p = (fwhm, center, ampl)
+    #     p = (fwhm, center, amp)
     #     return _astro_modelfuncs.lorentz1d(p, *args, **kwargs) # Sherpa Implementation uses the intergated flux as parameter
 
     ## LORENTZIAN WITH PEAK FLUX AS PARAMETER
     def calc(self, p, x, *args, **kwargs):
-        ampl = p[0]
+        amp = p[0]
         pos = p[1]
         offs_kms = p[2]
         fwhm_kms = p[3]
         center = pos + offs_kms/c * pos
         fwhm = fwhm_kms/c * center
-        p = (fwhm, center, ampl)
+        p = (fwhm, center, amp)
         return lorentzian(pars=p, x=x)
 
 class LorentzEmLine(LorentzianLine):
@@ -227,7 +227,7 @@ class LorentzEmLine(LorentzianLine):
         super().__init__(name=name, pos=pos, amp=amp, min_amp=min_amp, max_amp=max_amp,
                          fwhm=fwhm, min_fwhm=min_fwhm, max_fwhm=max_fwhm,
                          offset=offset, min_offset=min_offset, max_offset=max_offset)
-        self.amp.hard_min = 0 # Set the hard minimum for the amplitude to 0, so it cannot be an absorption line
+        self.amp._hard_min = 0 # Set the hard minimum for the amplitude to 0, so it cannot be an absorption line
 
 class LorentzAbsLine(LorentzianLine): 
     def __init__(self, name='abs_lorentz',
@@ -239,7 +239,7 @@ class LorentzAbsLine(LorentzianLine):
         super().__init__(name=name, pos=pos, amp=amp, min_amp=min_amp, max_amp=max_amp,
                          fwhm=fwhm, min_fwhm=min_fwhm, max_fwhm=max_fwhm,
                          offset=offset, min_offset=min_offset, max_offset=max_offset)
-        self.amp.hard_max = 0 # Set the hard maximum for the amplitude to 0, so it cannot be an emission line
+        self.amp._hard_max = 0 # Set the hard maximum for the amplitude to 0, so it cannot be an emission line
 
 
 
@@ -332,16 +332,16 @@ class VoigtLine(model.ArithmeticModel):
 
         norm = guess_amplitude(dep, *args)
         aprime = norm['val'] * fwhm['val'] * np.pi / 2.
-        ampl = {'val': aprime,
+        amp = {'val': aprime,
                 'min': aprime / _guess_ampl_scale,
                 'max': aprime * _guess_ampl_scale}
-        param_apply_limits(ampl, self.ampl, **kwargs)
+        param_apply_limits(amp, self.amp, **kwargs)
     
     # ## VOIGT WITH INTEGRATED FLUX AS PARAMETER
     # @modelCacher1d
     # def calc(self, p, *args, **kwargs):
     #     kwargs = clean_kwargs1d(self, kwargs)
-    #     ampl = p[0]
+    #     amp = p[0]
     #     pos = p[1]
     #     offs_kms = p[2]
     #     fwhm_g_kms = p[3]
@@ -349,12 +349,12 @@ class VoigtLine(model.ArithmeticModel):
     #     center = pos + offs_kms/c * pos
     #     fwhm_g = fwhm_g_kms/c * center
     #     fwhm_l = fwhm_l_kms/c * center
-    #     p = (fwhm_g, fwhm_l, center, ampl)
+    #     p = (fwhm_g, fwhm_l, center, amp)
     #     return _astro_modelfuncs.wofz(p, *args, **kwargs)
 
     ## VOIGT WITH PEAK FLUX AS PARAMETER
     def calc(self, p, x, *args, **kwargs):
-        ampl = p[0]
+        amp = p[0]
         pos = p[1]
         offs_kms = p[2]
         fwhm_g_kms = p[3]
@@ -362,7 +362,7 @@ class VoigtLine(model.ArithmeticModel):
         center = pos + offs_kms/c * pos
         fwhm_g = fwhm_g_kms/c * center
         fwhm_l = fwhm_l_kms/c * center
-        p = (fwhm_g, fwhm_l, center, ampl)
+        p = (fwhm_g, fwhm_l, center, amp)
         return voigt(pars=p, x=x)
 
 class VoigtEmLine(VoigtLine):
@@ -377,7 +377,7 @@ class VoigtEmLine(VoigtLine):
                          fwhm_g=fwhm_g, min_fwhm_g=min_fwhm_g, max_fwhm_g=max_fwhm_g,
                          fwhm_l=fwhm_l, min_fwhm_l=min_fwhm_l, max_fwhm_l=max_fwhm_l,
                          offset=offset, min_offset=min_offset, max_offset=max_offset)
-        self.amp.hard_min = 0 # Set the hard minimum for the amplitude to 0, so it cannot be an absorption line
+        self.amp._hard_min = 0 # Set the hard minimum for the amplitude to 0, so it cannot be an absorption line
 
 class VoigtAbsLine(VoigtLine):
     def __init__(self, name='abs_voigt',
@@ -391,7 +391,7 @@ class VoigtAbsLine(VoigtLine):
                          fwhm_g=fwhm_g, min_fwhm_g=min_fwhm_g, max_fwhm_g=max_fwhm_g,
                          fwhm_l=fwhm_l, min_fwhm_l=min_fwhm_l, max_fwhm_l=max_fwhm_l,
                          offset=offset, min_offset=min_offset, max_offset=max_offset)
-        self.amp.hard_max = 0 # Set the hard maximum for the amplitude to 0, so it cannot be an emission line
+        self.amp._hard_max = 0 # Set the hard maximum for the amplitude to 0, so it cannot be an emission line
 
 
 def _make_unique(names):
@@ -412,7 +412,7 @@ def _make_unique(names):
     return result
 
 class _TiedLinesBase(model.ArithmeticModel):
-    def __init__(self, files, name, amplitude, fwhm, offset, min_offset, max_offset, min_amplitude, max_amplitude, min_fwhm, max_fwhm):
+    def __init__(self, files, name, amp, fwhm, offset, min_offset, max_offset, min_amp, max_amp, min_fwhm, max_fwhm, extra_params=None):
         if len(files) > 0:
             F = [pd.read_csv(os.path.join(csv_lines_path, file)) for file in files]
             df = pd.concat(F)
@@ -426,7 +426,7 @@ class _TiedLinesBase(model.ArithmeticModel):
         pars = []
         for i in range(len(uniq)):
             pars.append(
-                Parameter(name, "amp_" + uniq[i], amplitude, min=min_amplitude, max=max_amplitude, frozen=False)
+                Parameter(name, "amp_" + uniq[i], amp, min=min_amp, max=max_amp, frozen=False)
             )
         for p in pars:
             setattr(self, p.name, p)
@@ -438,6 +438,9 @@ class _TiedLinesBase(model.ArithmeticModel):
         )
         pars.append(self.offs_kms)
         pars.append(self.fwhm)
+        if extra_params:
+            for param in extra_params:
+                pars.append(param)
         self.dft = df
         super().__init__(name, pars)
 
@@ -445,8 +448,8 @@ class _TiedLinesBase(model.ArithmeticModel):
         return self.dft.position.to_numpy()
 
 class TiedGaussLines(_TiedLinesBase):
-    def __init__(self, files, name='', amplitude=2, min_amplitude=0, max_amplitude=600, fwhm=3000, min_fwhm=100, max_fwhm=7000, offset=0, min_offset=-300, max_offset=300):
-        super().__init__(files, name, amplitude, fwhm, offset, min_offset, max_offset, min_amplitude, max_amplitude, min_fwhm, max_fwhm)
+    def __init__(self, files, name='', amp=2, min_amp=0, max_amp=600, fwhm=3000, min_fwhm=100, max_fwhm=7000, offset=0, min_offset=-300, max_offset=300):
+        super().__init__(files, name, amp, fwhm, offset, min_offset, max_offset, min_amp, max_amp, min_fwhm, max_fwhm)
 
     def calc(self, pars, x, *args, **kwargs):
         f = 0
@@ -457,16 +460,16 @@ class TiedGaussLines(_TiedLinesBase):
         for i in range(len(pos)):
             offset = pos[i] * offs_kms / c
             center = pos[i] + offset
-            ampl = pars[i]
+            amp = pars[i]
             fwhm_func = fwhm / c * center
-            p = (fwhm_func, center, ampl)
+            p = (fwhm_func, center, amp)
             # f += _basic_modelfuncs.gauss1d(p, x)
             f += gaussian(p, x)
         return f
 
 class TiedLorentzLines(_TiedLinesBase):
-    def __init__(self, files, name='', amplitude=2, min_amplitude=0, max_amplitude=600, fwhm=3000, min_fwhm=100, max_fwhm=7000, offset=0, min_offset=-300, max_offset=300):
-        super().__init__(files, name, amplitude, fwhm, offset, min_offset, max_offset, min_amplitude, max_amplitude, min_fwhm, max_fwhm)
+    def __init__(self, files, name='', amp=2, min_amp=0, max_amp=600, fwhm=3000, min_fwhm=100, max_fwhm=7000, offset=0, min_offset=-300, max_offset=300):
+        super().__init__(files, name, amp, fwhm, offset, min_offset, max_offset, min_amp, max_amp, min_fwhm, max_fwhm)
 
     def calc(self, pars, x, *args, **kwargs):
         f = 0
@@ -477,27 +480,27 @@ class TiedLorentzLines(_TiedLinesBase):
         for i in range(len(pos)):
             offset = pos[i] * offs_kms / c
             center = pos[i] + offset
-            ampl = pars[i]
+            amp = pars[i]
             fwhm_func = fwhm / c * center
-            p = (fwhm_func, center, ampl)
+            p = (fwhm_func, center, amp)
             # f += _astro_modelfuncs.lorentz1d(p, x)
             f += lorentzian(p, x)
         return f
 
 class TiedVoigtLines(_TiedLinesBase):
     def __init__(self, files, name='',
-                 amplitude=2, min_amplitude=0, max_amplitude=600,
+                 amp=2, min_amp=0, max_amp=600,
                  fwhm_g=3000, min_fwhm_g=100, max_fwhm_g=7000,
                  fwhm_l=3000, min_fwhm_l=100, max_fwhm_l=7000,
                  offset=0, min_offset=-300, max_offset=300):
-        # Call base class to set up amplitudes and offset
-        super().__init__(files, name, amplitude, fwhm_g, offset, min_offset, max_offset, min_amplitude, max_amplitude, min_fwhm_g, max_fwhm_g)
         
-        # Add Lorentzian FWHM parameter
-        self.fwhm_l = model.Parameter(name, "fwhm_l", fwhm_l, min=min_fwhm_l, max=max_fwhm_l, units='km/s')
-        # Insert Lorentzian FWHM as the last parameter
-        self.pars.append(self.fwhm_l)
-
+        # Create the Lorentzian FWHM parameter
+        fwhm_l_param = model.Parameter(name, "fwhm_l", fwhm_l, min=min_fwhm_l, max=max_fwhm_l, units='km/s')
+        self.fwhm_l = fwhm_l_param
+        
+        # Call base class with the extra parameter
+        super().__init__(files, name, amp, fwhm_g, offset, min_offset, max_offset, min_amp, max_amp, min_fwhm_g, max_fwhm_g, extra_params=[fwhm_l_param])
+        
     def calc(self, pars, x, *args, **kwargs):
         f = 0
         dft = self.dft
@@ -508,10 +511,10 @@ class TiedVoigtLines(_TiedLinesBase):
         for i in range(len(pos)):
             offset = pos[i] * offs_kms / c
             center = pos[i] + offset
-            ampl = pars[i]
+            amp = pars[i]
             fwhm_g_func = fwhm_g / c * center
             fwhm_l_func = fwhm_l / c * center
-            p = (fwhm_g_func, fwhm_l_func, center, ampl)
+            p = (fwhm_g_func, fwhm_l_func, center, amp)
             # f += _astro_modelfuncs.wofz(p, x)
             f += voigt(p, x)
         return f
@@ -563,9 +566,9 @@ class GaussFeII(_BaseFeII):
             for j in range(len(rxc)):
                 offset = rxc[j] * offs_kms / c
                 center = rxc[j] + offset
-                ampl = Int[j]
+                amp = Int[j]
                 fwhm_func = fwhm / c * center
-                p = (fwhm_func, center, ampl)
+                p = (fwhm_func, center, amp)
                 # f += par * _basic_modelfuncs.gauss1d(p, x)
                 f += par * gaussian(p, x)
         return f
@@ -590,9 +593,9 @@ class LorentzFeII(_BaseFeII):
             for j in range(len(rxc)):
                 offset = rxc[j] * offs_kms / c
                 center = rxc[j] + offset
-                ampl = Int[j]
+                amp = Int[j]
                 fwhm_func = fwhm / c * center
-                p = (fwhm_func, center, ampl)
+                p = (fwhm_func, center, amp)
                 f += par * lorentzian(p, x)
         return f
 
@@ -619,10 +622,10 @@ class VoigtFeII(_BaseFeII):
             for j in range(len(rxc)):
                 offset = rxc[j] * offs_kms / c
                 center = rxc[j] + offset
-                ampl = Int[j]
+                amp = Int[j]
                 fwhm_g_func = fwhm_g / c * center
                 fwhm_l_func = fwhm_l / c * center
-                p = (fwhm_g_func, fwhm_l_func, center, ampl)
+                p = (fwhm_g_func, fwhm_l_func, center, amp)
                 f += par * voigt(p, x)
         return f
 
@@ -675,7 +678,7 @@ class BalmerContinuum(model.ArithmeticModel):
         return result.value
 
 class BalmerLines(model.ArithmeticModel):
-    def __init__(self, name="Bal_lines", balmer_csv=None, ampl=50, min_ampl=1, max_ampl=1e6,
+    def __init__(self, name="Bal_lines", balmer_csv=None, amp=50, min_ampl=1, max_ampl=1e6,
                  offs_kms=1, min_offs_kms=-3000, max_offs_kms=3000,
                  fwhm=3000, min_fwhm=1000, max_fwhm=4000):
         if balmer_csv is None:
@@ -683,23 +686,23 @@ class BalmerLines(model.ArithmeticModel):
         self.df = pd.read_csv(balmer_csv)
         self.wave = self.df.position.to_numpy()
         self.rat = self.df.int.to_numpy()
-        self.ampl = model.Parameter(name, "ampl", ampl, min=min_ampl, max=max_ampl)
+        self.amp = model.Parameter(name, "amp", amp, min=min_ampl, max=max_ampl)
         self.offs_kms = model.Parameter(name, "offs_kms", offs_kms, min=min_offs_kms, max=max_offs_kms, units="km/s")
         self.fwhm = model.Parameter(name, "fwhm", fwhm, min=min_fwhm, max=max_fwhm, hard_min=tinyval, units="km/s")
-        p = (self.ampl, self.offs_kms, self.fwhm)
+        p = (self.amp, self.offs_kms, self.fwhm)
         super().__init__(name, p)
 
     def calc(self, pars, x, *args, **kwargs):
         lambda_BE = 3646.0
         c = 299792.458
-        ampl, offs_kms, fwhm = pars
+        amp, offs_kms, fwhm = pars
         f = 0
         for i in range(len(self.wave)):
             pos = self.wave[i]
             rat = self.rat[i]
             offset = pos * offs_kms / c
             sigma = (pos + offset) * fwhm / (c * 2.354)
-            f1 = ampl
+            f1 = amp
             f2 = - (x - pos - offset) ** 2. / (2 * sigma ** 2.)
             f += rat * f1 * np.exp(f2)
         ind = np.where(x <= lambda_BE, True, False)

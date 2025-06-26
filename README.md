@@ -60,6 +60,8 @@ narrow_v = models.TiedVoigtLines(
 model = narrow_v + narrow  # Choose any model or a combination of them
 ```
 
+NOTE: Of course, any of the models already defined within `sherpa` can be called and combined with the `agnlab.models` classes!
+
 ### 📦 Instrument Response Integration
 
 ```python

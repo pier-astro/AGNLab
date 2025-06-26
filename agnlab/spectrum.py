@@ -26,7 +26,7 @@ plt.rcParams['axes.xmargin'] = 0
 
 
 class Spectrum():
-    def __init__(self):
+    def __init__(self, wave=None, flux=None, fluxerr=None, ra=None, dec=None, z=None, name='spectrum'):
         self._zcorrected = False
         self._dereddened = False
         self._vac_to_air_corrected = False
@@ -35,13 +35,59 @@ class Spectrum():
         self.host = None
         self.agn = None
         
-        self.name = None
-        self.ra = None
-        self.dec = None
-        self.z = None
+        self.name = name
+        self.ra = ra
+        self.dec = dec
+        self.z = z
         self.ebv = None
 
         self.model = None
+        
+        # Initialize spectrum data if provided
+        if wave is not None and flux is not None:
+            self._initialize_spectrum(wave, flux, fluxerr)
+    
+    def _initialize_spectrum(self, wave, flux, fluxerr=None):
+        """Initialize spectrum data and compute derived quantities."""
+        self.wave = np.asarray(wave)
+        self.flux = np.asarray(flux)
+        
+        if fluxerr is None:
+            self.fluxerr = np.ones_like(self.wave)
+        else:
+            fluxerr = np.asarray(fluxerr)
+            if fluxerr.size == 1:
+                self.fluxerr = np.full_like(self.wave, fluxerr)
+            elif len(fluxerr) == len(self.wave):
+                self.fluxerr = fluxerr
+            else:
+                raise ValueError("fluxerr must be either a single value or the same length as wave.")
+        
+        # Compute derived quantities
+        if len(self.wave) > 1:
+            frac = self.wave[1] / self.wave[0]
+            self.velscale = np.log(frac) * c
+            dlam = (frac - 1) * self.wave
+            self.fwhm = 2.355 * dlam
+    
+    @classmethod
+    def from_txt(cls, filename, ra=None, dec=None, z=None, name=None):
+        """Create a Spectrum from a text file."""
+        try:
+            try:
+                wave, flux, fluxerr = np.genfromtxt(filename, unpack=True)
+            except ValueError:
+                wave, flux = np.genfromtxt(filename, unpack=True)
+                fluxerr = None
+        except Exception as e:
+            raise ValueError(f"Error reading file {filename}. Check the file format. "
+                           "It should contain at least two columns for wavelength and flux, "
+                           "and optionally a third column for flux error.") from e
+        
+        if name is None:
+            name = os.path.splitext(os.path.basename(filename))[0]
+        
+        return cls(wave=wave, flux=flux, fluxerr=fluxerr, ra=ra, dec=dec, z=z, name=name)
 
     def DeRedden(self, ebv=None):
         """
@@ -344,53 +390,3 @@ class Spectrum():
                 filename = self.name + '_mc_pars.csv'
             df.to_csv(filename, index=False)
         self.mc_pars = df
-        
-
-
-
-
-class make_spectrum(Spectrum):
-    def __init__(self, wave, flux, fluxerr=None, ra=None, dec=None, z=None, name='spectrum'):
-        super().__init__()
-        self.wave = wave
-        self.flux = flux
-        if fluxerr is None:
-            self.fluxerr = np.ones_like(wave)
-        else:
-            if len(fluxerr) != len(wave) and len(fluxerr) != 1:
-                raise ValueError("fluxerr must be either a single value or the same length as wave.")
-            elif len(fluxerr) == 1:
-                self.fluxerr = np.full_like(wave, fluxerr)
-            else:
-                self.fluxerr = fluxerr
-        self.ra = ra
-        self.dec = dec
-        self.z = z
-        self.name = name
-
-        frac = self.wave[1] / self.wave[0]
-        self.velscale = np.log(frac) * c
-        dlam = (frac - 1) * self.wave
-        self.fwhm = 2.355 * dlam
-
-class read_txt(Spectrum):
-    def __init__(self, filename, ra=None, dec=None, z=None, name='spectrum'):
-        super().__init__()
-        try:
-            try:
-                self.wave, self.flux, self.fluxerr = np.genfromtxt(filename, unpack=True)
-            except ValueError:
-                self.wave, self.flux = np.genfromtxt(filename, unpack=True)
-                self.fluxerr = np.ones_like(self.wave)
-        except Exception as e:
-            raise ValueError(f"Error reading file {filename}. Check the file format. It should contain at least two columns for wavelength and flux, and optionally a third column for flux error.") from e
-
-        self.ra = ra
-        self.dec = dec
-        self.z = z
-        self.name = name if name is not None else filename.split(".")[0]
-
-        frac = self.wave[1] / self.wave[0]
-        self.velscale = np.log(frac) * c
-        dlam = (frac - 1) * self.wave
-        self.fwhm = 2.355 * dlam

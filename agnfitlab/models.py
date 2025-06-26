@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import glob
 from pathlib import Path
-import string
+import warnings
 import yaml
 
 import astropy.units as u
@@ -20,58 +20,12 @@ from sherpa.utils.numeric_types import SherpaFloat
 
 from sherpa.astro.models import _modelfcts as _astro_modelfuncs # Sherpa implementation uses a lorentzian function not normalized to the peak
 
+from . import instrument
+
+
 c = const.c.to(u.km/u.s).value # Speed of light in km/s
 script_dir = os.path.dirname(__file__) # get the directory of the current script
 input_path = os.path.join(script_dir, "input")
-
-def get_model_free_params(model):
-    thawed_pars = model.get_thawed_pars()
-    cp_names = []
-    parkeys = []
-    parvals = []
-    for p in thawed_pars:
-        comp = p.modelname
-        name = p.name
-        cp_name = f'{comp}.{name}'
-        if cp_name in cp_names:
-            i = 2
-            cp_name = f'{comp}_{i}.{name}'
-            while cp_name in cp_names:
-                i += 1
-                cp_name = f'{comp}_{i}.{name}'
-        cp_names.append(cp_name)
-        parkeys.append(cp_name)
-        parvals.append(p.val)
-    pars = dict(zip(parkeys, parvals))
-    return pars
-
-def _convert_np(obj):
-    if isinstance(obj, dict):
-        return {k: _convert_np(v) for k, v in obj.items()}
-    elif isinstance(obj, (np.generic, np.ndarray)):
-        return obj.item()
-    else:
-        return obj
-def save_params(model, filename):
-    pars_dict = get_model_free_params(model)
-    with open(filename, 'w') as f:
-        yaml.dump(_convert_np(pars_dict), f, sort_keys=False)
-
-def read_params(filename):
-    if not os.path.exists(filename):
-        raise FileNotFoundError(f"File {filename} does not exist.")
-    with open(filename, 'r') as f:
-        pars_dict = yaml.safe_load(f)
-    return pars_dict
-
-def load_params(model, filename):
-    if not os.path.exists(filename):
-        raise FileNotFoundError(f"File {filename} does not exist.")
-    params_dict = read_params(filename)
-    # Get an array from all the values
-    values = np.array(list(params_dict.values()))
-    model.thawedpars = values
-
 
 
 def init_lines_csv(wmin=4000, wmax=7000, dirpath='./lines', overwrite=False):
@@ -824,3 +778,187 @@ class BrokenPowerlaw(model.ArithmeticModel):
 #             f += pars[i] * self.gal[i]
 #         return f
 # ### --- To be better implemented later --- ###
+
+
+
+
+
+
+
+
+
+
+
+### -------- MODEL UTILS -------- ###
+
+
+### RESPONSE MODEL AWARE VERSION
+def get_comps(model):
+    """
+    Recursively decompose a Sherpa compound model into its components.
+    """
+    is_rsp_mod = isinstance(model, instrument.ConvolvedModel)
+    rsp_model = None
+    if is_rsp_mod:
+        rsp_model = model.response_model
+        model = model.source_model
+    
+    components = []
+    # Base case: if the model is a leaf node (no parts), return it in a list
+    if not hasattr(model, 'parts'):
+        return [model]
+    
+    def traverse_parts(parts):
+        for part in parts:
+            if hasattr(part, 'parts'):
+                traverse_parts(part.parts)
+            else:
+                components.append(part)
+    
+    if hasattr(model, 'parts'):
+        traverse_parts(model.parts)
+
+    if is_rsp_mod:
+        components = [rsp_model(comp) for comp in components]
+
+    return components
+
+def get_add_comps(model):
+    """
+    Recursively decompose a Sherpa compound model into additive components.
+    
+    Parameters:
+    model (Sherpa model instance): The model to decompose.
+    
+    Returns:
+    list: A list of Sherpa model instances representing each additive component.
+    """
+    is_rsp_mod = isinstance(model, instrument.ConvolvedModel)
+    rsp_model = None
+    if is_rsp_mod:
+        rsp_model = model.response_model
+        model = model.source_model
+        
+    
+    # Base case: if the model is a leaf node (no parts), return it in a list
+    if not hasattr(model, 'parts'):
+        return [model]
+    
+    # Split into left and right parts
+    left_part, right_part = model.parts
+    op = model.opstr  # Get the operation as a string
+    
+    # Recursively get components for left and right parts
+    left_components = get_add_comps(left_part)
+    right_components = get_add_comps(right_part)
+    
+    # Handle additive operations
+    if op in ('+', '-'):
+        # # For subtraction, negate the right components
+        # if op == '-':
+        #     right_components = [(-1) * comp for comp in right_components]
+        result = left_components + right_components
+    else:
+        # Handle multiplicative (or other) operations by combining all pairs
+        components = []
+        for lcomp in left_components:
+            for rcomp in right_components:
+                components.append(model.op(lcomp, rcomp))
+        result = components
+
+    # Add logic for response model if needed
+    if is_rsp_mod:
+        result = [rsp_model(comp) for comp in result]
+
+    return result
+
+def get_component_names(components):
+    comp_names = np.zeros(len(components), dtype=object)
+    for i, comp in enumerate(components):
+        if isinstance(comp, instrument.ConvolvedModel):
+            comp = comp.source_model
+        comp_names[i] = comp.name
+    return comp_names
+
+def get_comp_from_name(model, name):
+    """
+    Get a component from a model by its name.
+    
+    Parameters:
+    model (Sherpa model instance): The model to search in.
+    comp_name (str): The name of the component to find.
+
+    Returns:
+    Sherpa model instance: The component with the specified name, or None if not found.
+    """
+    components = get_comps(model)
+    names = get_component_names(components)
+    if name in names:
+        index = np.where(names == name)[0][0]
+        return components[index]
+    else:
+        raise ValueError(f"Component with name '{name}' not found in the model.")
+
+def get_model_free_params_names(model):
+    thawed_pars = model.get_thawed_pars()
+    cp_names = []
+    for p in thawed_pars:
+        comp = p.modelname
+        name = p.name
+        cp_name = f'{comp}.{name}'
+        if cp_name in cp_names:
+            i = 2
+            cp_name = f'{comp}_{i}.{name}'
+            while cp_name in cp_names:
+                i += 1
+                cp_name = f'{comp}_{i}.{name}'
+        cp_names.append(cp_name)
+    return cp_names
+
+def get_model_free_params(model):
+    thawed_pars = model.get_thawed_pars()
+    cp_names = []
+    parkeys = []
+    parvals = []
+    for p in thawed_pars:
+        comp = p.modelname
+        name = p.name
+        cp_name = f'{comp}.{name}'
+        if cp_name in cp_names:
+            i = 2
+            cp_name = f'{comp}_{i}.{name}'
+            while cp_name in cp_names:
+                i += 1
+                cp_name = f'{comp}_{i}.{name}'
+        cp_names.append(cp_name)
+        parkeys.append(cp_name)
+        parvals.append(p.val)
+    pars = dict(zip(parkeys, parvals))
+    return pars
+
+def _convert_np(obj):
+    if isinstance(obj, dict):
+        return {k: _convert_np(v) for k, v in obj.items()}
+    elif isinstance(obj, (np.generic, np.ndarray)):
+        return obj.item()
+    else:
+        return obj
+def save_params(model, filename):
+    pars_dict = get_model_free_params(model)
+    with open(filename, 'w') as f:
+        yaml.dump(_convert_np(pars_dict), f, sort_keys=False)
+
+def read_params(filename):
+    if not os.path.exists(filename):
+        raise FileNotFoundError(f"File {filename} does not exist.")
+    with open(filename, 'r') as f:
+        pars_dict = yaml.safe_load(f)
+    return pars_dict
+
+def load_params(model, filename):
+    if not os.path.exists(filename):
+        raise FileNotFoundError(f"File {filename} does not exist.")
+    params_dict = read_params(filename)
+    # Get an array from all the values
+    values = np.array(list(params_dict.values()))
+    model.thawedpars = values

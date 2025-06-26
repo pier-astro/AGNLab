@@ -15,8 +15,8 @@ from tqdm.auto import tqdm, trange
 import multiprocess as mp
 import warnings
 
-from .tools import resample_spectrum, downsample_wave, vac_to_air, get_add_comps, get_comps
-from .models import save_params, read_params
+from .tools import resample_spectrum, downsample_wave, vac_to_air
+from .models import save_params, read_params, get_add_comps, get_comps
 
 script_dir = os.path.dirname(__file__)
 sfdpath = os.path.join(script_dir, "sfddata")
@@ -69,9 +69,9 @@ class Spectrum():
             self.flux = pyasl.unred(self.wave, self.flux, self.ebv)
             self._dereddened = True
 
-    def zCorrection(self, redshift=None):
+    def zCorrect(self, redshift=None):
         """
-        The zCorrection() function corrects the flux for redshift.
+        The zCorrect() function corrects the flux for redshift.
         It takes in a redshift and corrects the wavelength, flux, and error arrays by that given redshift.
 
         :param self: Used to Reference the class object.
@@ -79,7 +79,7 @@ class Spectrum():
         :return: The wavelength, flux and error arrays for the object at a redshift of z=0.
         """
         if self._zcorrected:
-            warnings.warn("Spectrum is already redshift corrected. Skipping zCorrection step.", UserWarning)
+            warnings.warn("Spectrum is already redshift corrected. Skipping zCorrect step.", UserWarning)
         else:
             self.input_wave = self.wave.copy() if not hasattr(self, 'input_wave') else self.input_wave
             self.input_flux = self.flux.copy() if not hasattr(self, 'input_flux') else self.input_flux

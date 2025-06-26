@@ -6,6 +6,7 @@ from .tools import *
 from . import models
 from . import instrument
 from . import host
+from . import cubefit
 
 
 

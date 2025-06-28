@@ -291,6 +291,38 @@ class Spectrum():
         with open(filename, 'rb') as f:
             self.model = dill.load(f)
 
+    def save_object(self, filename):
+        """
+        Save the Spectrum object to a file using dill.
+        
+        Parameters
+        ----------
+        filename : str
+            The name of the file to save the object to. Should end with '.dill'.
+        """
+        if not filename.endswith('.dill'):
+            filename += '.dill'
+        with open(filename, 'wb') as f:
+            dill.dump(self, f)
+    
+    @classmethod
+    def load_object(cls, filename):
+        """
+        Load a Spectrum object from a file.
+        
+        Parameters
+        ----------
+        filename : str
+            The name of the file to load the object from. Should end with '.dill'.
+        
+        Returns
+        -------
+        Spectrum
+            The loaded Spectrum object.
+        """
+        with open(filename, 'rb') as f:
+            return dill.load(f)
+
     def _mc_resampling_NOparallelized(self, nsample=10, stat=Chi2(), method=LevMar()):
         if self.fluxerr is None:
             raise ValueError("Flux error is not defined. Please provide flux error for Monte Carlo sampling.")

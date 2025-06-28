@@ -2,7 +2,8 @@ import os
 import numpy as np
 import warnings
 from astropy.io import fits
-from astropy.wcs import WCS
+# from astropy.wcs import WCS. GitHub issues. https://github.com/astropy/astropy/issues/887 , https://github.com/astropy/astropy/issues/1084
+from mpdaf.obj.coords import WCS # Better handles keywords.
 import astropy.units as u
 import astropy.constants as const
 
@@ -45,7 +46,7 @@ class CubeAnalyzer:
         self.snr_maps = None
         self.snr_lines = None
     
-    def set_data(self, wave, data, datavar=None, z=None, wcs:WCS=None):
+    def set_data(self, wave, data, datavar=None, z=None, wcs=None):
         """
         Set the data for the FitCube object.
 
@@ -311,8 +312,6 @@ class CubeAnalyzer:
         self.snr_maps = maps
         self.snr_lines = linenames
 
-
-
     def save(self, filename, save_model=True):
         """
         Save the fitted parameters and statistics to a FITS file.
@@ -330,15 +329,12 @@ class CubeAnalyzer:
 
         # Store the parameter cube in an extension HDU with a name
         params_hdu = fits.ImageHDU(self.parscube)
-        params_hdu.header['NAXIS'] = 3
-        params_hdu.header['NAXIS1'] = self.parscube.shape[0]
-        params_hdu.header['NAXIS2'] = self.parscube.shape[1]
-        params_hdu.header['NAXIS3'] = self.parscube.shape[2]
         params_hdu.header['EXTNAME'] = 'PARAMS'
         # Add parameter names to the header
         if self.parnames is None and self.model is not None:
             self.parnames = models.get_model_free_params_names(self.model)
         params_hdu.header['PARNAMES'] = ', '.join(self.parnames)
+        
         # Add WCS information if available
         if self.wcs is not None:
             wcs_header = self.wcs.to_header()
@@ -346,9 +342,6 @@ class CubeAnalyzer:
 
         # Statistic image HDU as before
         stat_hdu = fits.ImageHDU(self.stat)
-        stat_hdu.header['NAXIS'] = 2
-        stat_hdu.header['NAXIS1'] = self.stat.shape[0]
-        stat_hdu.header['NAXIS2'] = self.stat.shape[1]
         stat_hdu.header['EXTNAME'] = 'FITSTAT'
         stat_hdu.header['DOF'] = self.dof
 
@@ -360,10 +353,6 @@ class CubeAnalyzer:
             if self.snr_maps.shape[1:] != self.data.shape[1:]:
                 raise ValueError("SNR maps shape must match the data shape (ny, nx).")
             snr_hdu = fits.ImageHDU(self.snr_maps)
-            snr_hdu.header['NAXIS'] = 3
-            snr_hdu.header['NAXIS1'] = self.snr_maps.shape[0]
-            snr_hdu.header['NAXIS2'] = self.snr_maps.shape[1]
-            snr_hdu.header['NAXIS3'] = self.snr_maps.shape[2]
             snr_hdu.header['EXTNAME'] = 'SNR'
             snr_hdu.header['LINES'] = ', '.join(self.snr_lines)
             hdus.append(snr_hdu)

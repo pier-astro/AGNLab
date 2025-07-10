@@ -81,11 +81,11 @@ class GaussianLine(model.ArithmeticModel):
                  pos=5000,
                  amp=5, min_amp=-500, max_amp=500,
                  fwhm=1000, min_fwhm=5, max_fwhm=10000,
-                 offset=0, min_offset=-3000, max_offset=3000):
+                 offs_kms=0, min_offset=-3000, max_offset=3000):
         
         self.amp = model.Parameter(modelname=name, name="amp", val=amp, min=min_amp, max=max_amp)
         self.pos = model.Parameter(modelname=name, name="pos", val=pos, min=0, frozen=True, units="Å")
-        self.offs_kms = model.Parameter(modelname=name, name="offs_kms", val=offset, min=min_offset, max=max_offset, units="km/s")
+        self.offs_kms = model.Parameter(modelname=name, name="offs_kms", val=offs_kms, min=min_offset, max=max_offset, units="km/s")
         self.fwhm = model.Parameter(modelname=name, name="fwhm", val=fwhm, min=min_fwhm, max=max_fwhm, hard_min=tinyval, units="km/s")
         p = (self.amp, self.pos, self.offs_kms, self.fwhm)
         super().__init__(name, p)
@@ -125,11 +125,11 @@ class GaussEmLine(GaussianLine):
                  pos=5000,
                  amp=5, min_amp=0, max_amp=500,
                  fwhm=1000, min_fwhm=5, max_fwhm=10000,
-                 offset=0, min_offset=-3000, max_offset=3000):
+                 offs_kms=0, min_offset=-3000, max_offset=3000):
 
         super().__init__(name=name, pos=pos, amp=amp, min_amp=min_amp, max_amp=max_amp,
                          fwhm=fwhm, min_fwhm=min_fwhm, max_fwhm=max_fwhm,
-                         offset=offset, min_offset=min_offset, max_offset=max_offset)
+                         offs_kms=offs_kms, min_offset=min_offset, max_offset=max_offset)
         self.amp._hard_min = 0 # Set the hard minimum for the amplitude to 0, so it cannot be an absorption line
 
 class GaussAbsLine(GaussianLine): # Inherit everything from GaussianLine and just change the hard_maximum for the amplitude to 0
@@ -137,11 +137,11 @@ class GaussAbsLine(GaussianLine): # Inherit everything from GaussianLine and jus
                  pos=5000,
                  amp=-5, min_amp=-500, max_amp=0,
                  fwhm=1000, min_fwhm=5, max_fwhm=10000,
-                 offset=0, min_offset=-3000, max_offset=3000):
+                 offs_kms=0, min_offset=-3000, max_offset=3000):
 
         super().__init__(name=name, pos=pos, amp=amp, min_amp=min_amp, max_amp=max_amp,
                          fwhm=fwhm, min_fwhm=min_fwhm, max_fwhm=max_fwhm,
-                         offset=offset, min_offset=min_offset, max_offset=max_offset)
+                         offs_kms=offs_kms, min_offset=min_offset, max_offset=max_offset)
         self.amp._hard_max = 0 # Set the hard maximum for the amplitude to 0, so it cannot be an emission line
 
 
@@ -158,11 +158,11 @@ class LorentzianLine(model.ArithmeticModel):
                  pos=5000,
                  amp=5, min_amp=-500, max_amp=500,
                  fwhm=1000, min_fwhm=5, max_fwhm=10000,
-                 offset=0, min_offset=-3000, max_offset=3000):
+                 offs_kms=0, min_offset=-3000, max_offset=3000):
         
         self.amp = model.Parameter(modelname=name, name="amp", val=amp, min=min_amp, max=max_amp)
         self.pos = model.Parameter(modelname=name, name="pos", val=pos, min=0, frozen=True, units="Å")
-        self.offs_kms = model.Parameter(modelname=name, name="offs_kms", val=offset, min=min_offset, max=max_offset, units="km/s")
+        self.offs_kms = model.Parameter(modelname=name, name="offs_kms", val=offs_kms, min=min_offset, max=max_offset, units="km/s")
         self.fwhm = model.Parameter(modelname=name, name="fwhm", val=fwhm, min=min_fwhm, max=max_fwhm, hard_min=tinyval, units="km/s")
         p = (self.amp, self.pos, self.offs_kms, self.fwhm)
         super().__init__(name, p)
@@ -222,11 +222,11 @@ class LorentzEmLine(LorentzianLine):
                  pos=5000,
                  amp=5, min_amp=0, max_amp=500,
                  fwhm=1000, min_fwhm=5, max_fwhm=10000,
-                 offset=0, min_offset=-3000, max_offset=3000):
+                 offs_kms=0, min_offset=-3000, max_offset=3000):
 
         super().__init__(name=name, pos=pos, amp=amp, min_amp=min_amp, max_amp=max_amp,
                          fwhm=fwhm, min_fwhm=min_fwhm, max_fwhm=max_fwhm,
-                         offset=offset, min_offset=min_offset, max_offset=max_offset)
+                         offs_kms=offs_kms, min_offset=min_offset, max_offset=max_offset)
         self.amp._hard_min = 0 # Set the hard minimum for the amplitude to 0, so it cannot be an absorption line
 
 class LorentzAbsLine(LorentzianLine): 
@@ -234,11 +234,11 @@ class LorentzAbsLine(LorentzianLine):
                  pos=5000,
                  amp=-5, min_amp=-500, max_amp=0,
                  fwhm=1000, min_fwhm=5, max_fwhm=10000,
-                 offset=0, min_offset=-3000, max_offset=3000):
+                 offs_kms=0, min_offset=-3000, max_offset=3000):
 
         super().__init__(name=name, pos=pos, amp=amp, min_amp=min_amp, max_amp=max_amp,
                          fwhm=fwhm, min_fwhm=min_fwhm, max_fwhm=max_fwhm,
-                         offset=offset, min_offset=min_offset, max_offset=max_offset)
+                         offs_kms=offs_kms, min_offset=min_offset, max_offset=max_offset)
         self.amp._hard_max = 0 # Set the hard maximum for the amplitude to 0, so it cannot be an emission line
 
 
@@ -303,11 +303,11 @@ class VoigtLine(model.ArithmeticModel):
                  amp=5, min_amp=-500, max_amp=500,
                  fwhm_g=1000, min_fwhm_g=5, max_fwhm_g=10000,
                  fwhm_l=1000, min_fwhm_l=5, max_fwhm_l=10000,
-                 offset=0, min_offset=-3000, max_offset=3000):
+                 offs_kms=0, min_offset=-3000, max_offset=3000):
         
         self.amp = model.Parameter(modelname=name, name="amp", val=amp, min=min_amp, max=max_amp)
         self.pos = model.Parameter(modelname=name, name="pos", val=pos, min=0, frozen=True, units="Å")
-        self.offs_kms = model.Parameter(modelname=name, name="offs_kms", val=offset, min=min_offset, max=max_offset, units="km/s")
+        self.offs_kms = model.Parameter(modelname=name, name="offs_kms", val=offs_kms, min=min_offset, max=max_offset, units="km/s")
         self.fwhm_g = model.Parameter(modelname=name, name="fwhm_g", val=fwhm_g, min=min_fwhm_g, max=max_fwhm_g, hard_min=tinyval, units="km/s")
         self.fwhm_l = model.Parameter(modelname=name, name="fwhm_l", val=fwhm_l, min=min_fwhm_l, max=max_fwhm_l, hard_min=tinyval, units="km/s")
         p = (self.amp, self.pos, self.offs_kms, self.fwhm_g, self.fwhm_l)
@@ -371,12 +371,12 @@ class VoigtEmLine(VoigtLine):
                  amp=5, min_amp=0, max_amp=500,
                  fwhm_g=1000, min_fwhm_g=5, max_fwhm_g=10000,
                  fwhm_l=1000, min_fwhm_l=10, max_fwhm_l=10000,
-                 offset=0, min_offset=-3000, max_offset=3000):
+                 offs_kms=0, min_offset=-3000, max_offset=3000):
 
         super().__init__(name=name, pos=pos, amp=amp, min_amp=min_amp, max_amp=max_amp,
                          fwhm_g=fwhm_g, min_fwhm_g=min_fwhm_g, max_fwhm_g=max_fwhm_g,
                          fwhm_l=fwhm_l, min_fwhm_l=min_fwhm_l, max_fwhm_l=max_fwhm_l,
-                         offset=offset, min_offset=min_offset, max_offset=max_offset)
+                         offs_kms=offs_kms, min_offset=min_offset, max_offset=max_offset)
         self.amp._hard_min = 0 # Set the hard minimum for the amplitude to 0, so it cannot be an absorption line
 
 class VoigtAbsLine(VoigtLine):
@@ -385,12 +385,12 @@ class VoigtAbsLine(VoigtLine):
                  amp=-5, min_amp=-500, max_amp=0,
                  fwhm_g=1000, min_fwhm_g=5, max_fwhm_g=10000,
                  fwhm_l=1000, min_fwhm_l=10, max_fwhm_l=10000,
-                 offset=0, min_offset=-3000, max_offset=3000):
+                 offs_kms=0, min_offset=-3000, max_offset=3000):
 
         super().__init__(name=name, pos=pos, amp=amp, min_amp=min_amp, max_amp=max_amp,
                          fwhm_g=fwhm_g, min_fwhm_g=min_fwhm_g, max_fwhm_g=max_fwhm_g,
                          fwhm_l=fwhm_l, min_fwhm_l=min_fwhm_l, max_fwhm_l=max_fwhm_l,
-                         offset=offset, min_offset=min_offset, max_offset=max_offset)
+                         offs_kms=offs_kms, min_offset=min_offset, max_offset=max_offset)
         self.amp._hard_max = 0 # Set the hard maximum for the amplitude to 0, so it cannot be an emission line
 
 
@@ -412,7 +412,7 @@ def _make_unique(names):
     return result
 
 class _TiedLinesBase(model.ArithmeticModel):
-    def __init__(self, files, name, amp, fwhm, offset, min_offset, max_offset, min_amp, max_amp, min_fwhm, max_fwhm, extra_params=None):
+    def __init__(self, files, name, amp, offs_kms, fwhm, min_offset, max_offset, min_amp, max_amp, min_fwhm, max_fwhm, extra_params=None):
         if len(files) > 0:
             F = [pd.read_csv(os.path.join(csv_lines_path, file)) for file in files]
             df = pd.concat(F)
@@ -431,7 +431,7 @@ class _TiedLinesBase(model.ArithmeticModel):
         for p in pars:
             setattr(self, p.name, p)
         self.offs_kms = model.Parameter(
-            name, "offs_kms", offset, min=min_offset, max=max_offset, units='km/s'
+            name, "offs_kms", offs_kms, min=min_offset, max=max_offset, units='km/s'
         )
         self.fwhm = model.Parameter(
             name, "fwhm", fwhm, min=min_fwhm, max=max_fwhm, units='km/s'
@@ -448,18 +448,18 @@ class _TiedLinesBase(model.ArithmeticModel):
         return self.dft.position.to_numpy()
 
 class TiedGaussLines(_TiedLinesBase):
-    def __init__(self, files, name='', amp=2, min_amp=0, max_amp=600, fwhm=3000, min_fwhm=100, max_fwhm=7000, offset=0, min_offset=-300, max_offset=300):
-        super().__init__(files, name, amp, fwhm, offset, min_offset, max_offset, min_amp, max_amp, min_fwhm, max_fwhm)
+    def __init__(self, files, name='', amp=2, min_amp=0, max_amp=600, offs_kms=0, min_offset=-300, max_offset=300, fwhm=3000, min_fwhm=100, max_fwhm=7000):
+        super().__init__(files, name, amp, offs_kms, fwhm, min_offset, max_offset, min_amp, max_amp, min_fwhm, max_fwhm)
 
     def calc(self, pars, x, *args, **kwargs):
         f = 0
         dft = self.dft
-        fwhm = pars[-1]
         offs_kms = pars[-2]
+        fwhm = pars[-1]
         pos = self._get_positions()
         for i in range(len(pos)):
-            offset = pos[i] * offs_kms / c
-            center = pos[i] + offset
+            offs_kms_line = pos[i] * offs_kms / c
+            center = pos[i] + offs_kms_line
             amp = pars[i]
             fwhm_func = fwhm / c * center
             p = (fwhm_func, center, amp)
@@ -468,18 +468,18 @@ class TiedGaussLines(_TiedLinesBase):
         return f
 
 class TiedLorentzLines(_TiedLinesBase):
-    def __init__(self, files, name='', amp=2, min_amp=0, max_amp=600, fwhm=3000, min_fwhm=100, max_fwhm=7000, offset=0, min_offset=-300, max_offset=300):
-        super().__init__(files, name, amp, fwhm, offset, min_offset, max_offset, min_amp, max_amp, min_fwhm, max_fwhm)
+    def __init__(self, files, name='', amp=2, min_amp=0, max_amp=600, offs_kms=0, min_offset=-300, max_offset=300, fwhm=3000, min_fwhm=100, max_fwhm=7000):
+        super().__init__(files, name, amp, offs_kms, fwhm, min_offset, max_offset, min_amp, max_amp, min_fwhm, max_fwhm)
 
     def calc(self, pars, x, *args, **kwargs):
         f = 0
         dft = self.dft
-        fwhm = pars[-1]
         offs_kms = pars[-2]
+        fwhm = pars[-1]
         pos = self._get_positions()
         for i in range(len(pos)):
-            offset = pos[i] * offs_kms / c
-            center = pos[i] + offset
+            offs_kms_line = pos[i] * offs_kms / c
+            center = pos[i] + offs_kms_line
             amp = pars[i]
             fwhm_func = fwhm / c * center
             p = (fwhm_func, center, amp)
@@ -490,16 +490,16 @@ class TiedLorentzLines(_TiedLinesBase):
 class TiedVoigtLines(_TiedLinesBase):
     def __init__(self, files, name='',
                  amp=2, min_amp=0, max_amp=600,
+                 offs_kms=0, min_offset=-300, max_offset=300,
                  fwhm_g=3000, min_fwhm_g=100, max_fwhm_g=7000,
-                 fwhm_l=3000, min_fwhm_l=100, max_fwhm_l=7000,
-                 offset=0, min_offset=-300, max_offset=300):
+                 fwhm_l=3000, min_fwhm_l=100, max_fwhm_l=7000):
         
         # Create the Lorentzian FWHM parameter
         fwhm_l_param = model.Parameter(name, "fwhm_l", fwhm_l, min=min_fwhm_l, max=max_fwhm_l, units='km/s')
         self.fwhm_l = fwhm_l_param
         
         # Call base class with the extra parameter
-        super().__init__(files, name, amp, fwhm_g, offset, min_offset, max_offset, min_amp, max_amp, min_fwhm_g, max_fwhm_g, extra_params=[fwhm_l_param])
+        super().__init__(files, name, amp, offs_kms, fwhm_g, min_offset, max_offset, min_amp, max_amp, min_fwhm_g, max_fwhm_g, extra_params=[fwhm_l_param])
         
     def calc(self, pars, x, *args, **kwargs):
         f = 0
@@ -509,8 +509,8 @@ class TiedVoigtLines(_TiedLinesBase):
         fwhm_l = pars[-1]
         pos = self._get_positions()
         for i in range(len(pos)):
-            offset = pos[i] * offs_kms / c
-            center = pos[i] + offset
+            offs_kms_line = pos[i] * offs_kms / c
+            center = pos[i] + offs_kms_line
             amp = pars[i]
             fwhm_g_func = fwhm_g / c * center
             fwhm_l_func = fwhm_l / c * center
@@ -527,7 +527,7 @@ class TiedVoigtLines(_TiedLinesBase):
 
 
 class _BaseFeII(model.ArithmeticModel):
-    def __init__(self, name="feii", csv_path=None, extra_params=None, offset=0, min_offset=-1000, max_offset=1000):
+    def __init__(self, name="feii", csv_path=None, extra_params=None, offs_kms=0, min_offset=-1000, max_offset=1000):
         if csv_path is None:
             csv_path = os.path.join(csv_lines_path, "feII_model.csv")
         dft = pd.read_csv(csv_path)
@@ -537,7 +537,7 @@ class _BaseFeII(model.ArithmeticModel):
             pars.append(Parameter(name, f"amp_{u}", 2, min=0, max=1000, frozen=False))
         for p in pars:
             setattr(self, p.name, p)
-        self.offs_kms = model.Parameter(name, "offs_kms", offset, min=min_offset, hard_min=min_offset, max=max_offset)
+        self.offs_kms = model.Parameter(name, "offs_kms", offs_kms, min=min_offset, hard_min=min_offset, max=max_offset)
         pars.append(self.offs_kms)
         if extra_params:
             for param in extra_params:
@@ -547,10 +547,10 @@ class _BaseFeII(model.ArithmeticModel):
         super().__init__(name, pars)
 
 class GaussFeII(_BaseFeII):
-    def __init__(self, name="feii", csv_path=None, fwhm=2000, min_fwhm=10, max_fwhm=10000, offset=0, min_offset=-1000, max_offset=1000):
+    def __init__(self, name="feii", csv_path=None, fwhm=2000, min_fwhm=10, max_fwhm=10000, offs_kms=0, min_offset=-1000, max_offset=1000):
         fwhm_param = model.Parameter(name, "fwhm", fwhm, min=min_fwhm, hard_min=min_fwhm, max=max_fwhm)
         self.fwhm = fwhm_param
-        super().__init__(name, csv_path, extra_params=[fwhm_param], offset=offset, min_offset=min_offset, max_offset=max_offset)
+        super().__init__(name, csv_path, extra_params=[fwhm_param], offs_kms=offs_kms, min_offset=min_offset, max_offset=max_offset)
 
     def calc(self, pars, x, *args, **kwargs):
         dft = self.dft
@@ -564,8 +564,8 @@ class GaussFeII(_BaseFeII):
             Int = df.Int.to_numpy()
             par = pars[i]
             for j in range(len(rxc)):
-                offset = rxc[j] * offs_kms / c
-                center = rxc[j] + offset
+                offs_kms_line = rxc[j] * offs_kms / c
+                center = rxc[j] + offs_kms_line
                 amp = Int[j]
                 fwhm_func = fwhm / c * center
                 p = (fwhm_func, center, amp)
@@ -574,10 +574,10 @@ class GaussFeII(_BaseFeII):
         return f
 
 class LorentzFeII(_BaseFeII):
-    def __init__(self, name="feii_lorentz", csv_path=None, fwhm=2000, min_fwhm=10, max_fwhm=10000, offset=0, min_offset=-1000, max_offset=1000):
+    def __init__(self, name="feii_lorentz", csv_path=None, fwhm=2000, min_fwhm=10, max_fwhm=10000, offs_kms=0, min_offset=-1000, max_offset=1000):
         fwhm_param = model.Parameter(name, "fwhm", fwhm, min=min_fwhm, hard_min=min_fwhm, max=max_fwhm)
         self.fwhm = fwhm_param
-        super().__init__(name, csv_path, extra_params=[fwhm_param], offset=offset, min_offset=min_offset, max_offset=max_offset)
+        super().__init__(name, csv_path, extra_params=[fwhm_param], offs_kms=offs_kms, min_offset=min_offset, max_offset=max_offset)
 
     def calc(self, pars, x, *args, **kwargs):
         dft = self.dft
@@ -591,8 +591,8 @@ class LorentzFeII(_BaseFeII):
             Int = df.Int.to_numpy()
             par = pars[i]
             for j in range(len(rxc)):
-                offset = rxc[j] * offs_kms / c
-                center = rxc[j] + offset
+                offs_kms_line = rxc[j] * offs_kms / c
+                center = rxc[j] + offs_kms_line
                 amp = Int[j]
                 fwhm_func = fwhm / c * center
                 p = (fwhm_func, center, amp)
@@ -600,12 +600,12 @@ class LorentzFeII(_BaseFeII):
         return f
 
 class VoigtFeII(_BaseFeII):
-    def __init__(self, name="feii_voigt", csv_path=None, fwhm_g=2000, min_fwhm_g=10, max_fwhm_g=10000, fwhm_l=2000, min_fwhm_l=10, max_fwhm_l=10000, offset=0, min_offset=-1000, max_offset=1000):
+    def __init__(self, name="feii_voigt", csv_path=None, fwhm_g=2000, min_fwhm_g=10, max_fwhm_g=10000, fwhm_l=2000, min_fwhm_l=10, max_fwhm_l=10000, offs_kms=0, min_offset=-1000, max_offset=1000):
         fwhm_g_param = model.Parameter(name, "fwhm_g", fwhm_g, min=min_fwhm_g, hard_min=min_fwhm_g, max=max_fwhm_g)
         fwhm_l_param = model.Parameter(name, "fwhm_l", fwhm_l, min=min_fwhm_l, hard_min=min_fwhm_l, max=max_fwhm_l)
         self.fwhm_g = fwhm_g_param
         self.fwhm_l = fwhm_l_param
-        super().__init__(name, csv_path, extra_params=[fwhm_g_param, fwhm_l_param], offset=offset, min_offset=min_offset, max_offset=max_offset)
+        super().__init__(name, csv_path, extra_params=[fwhm_g_param, fwhm_l_param], offs_kms=offs_kms, min_offset=min_offset, max_offset=max_offset)
 
     def calc(self, pars, x, *args, **kwargs):
         dft = self.dft
@@ -620,8 +620,8 @@ class VoigtFeII(_BaseFeII):
             Int = df.Int.to_numpy()
             par = pars[i]
             for j in range(len(rxc)):
-                offset = rxc[j] * offs_kms / c
-                center = rxc[j] + offset
+                offs_kms_line = rxc[j] * offs_kms / c
+                center = rxc[j] + offs_kms_line
                 amp = Int[j]
                 fwhm_g_func = fwhm_g / c * center
                 fwhm_l_func = fwhm_l / c * center
@@ -631,29 +631,29 @@ class VoigtFeII(_BaseFeII):
 
 class GaussUVFeII(GaussFeII):
     def __init__(self, name="uv_feii_gauss", csv_path=None, fwhm=2000, min_fwhm=10, max_fwhm=10000,
-                 offset=0, min_offset=-1000, max_offset=1000):
+                 offs_kms=0, min_offset=-1000, max_offset=1000):
         if csv_path is None:
             csv_path = os.path.join(csv_lines_path, "uvfe.csv")
         super().__init__(name=name, csv_path=csv_path, fwhm=fwhm, min_fwhm=min_fwhm, max_fwhm=max_fwhm,
-                         offset=offset, min_offset=min_offset, max_offset=max_offset)
+                         offs_kms=offs_kms, min_offset=min_offset, max_offset=max_offset)
 
 class LorentzUVFeII(LorentzFeII):
     def __init__(self, name="uv_feii_lorentz", csv_path=None, fwhm=2000, min_fwhm=10, max_fwhm=10000,
-                 offset=0, min_offset=-1000, max_offset=1000):
+                 offs_kms=0, min_offset=-1000, max_offset=1000):
         if csv_path is None:
             csv_path = os.path.join(csv_lines_path, "uvfe.csv")
         super().__init__(name=name, csv_path=csv_path, fwhm=fwhm, min_fwhm=min_fwhm, max_fwhm=max_fwhm,
-                         offset=offset, min_offset=min_offset, max_offset=max_offset)
+                         offs_kms=offs_kms, min_offset=min_offset, max_offset=max_offset)
 
 class VoigtUVFeII(VoigtFeII):
     def __init__(self, name="uv_feii_voigt", csv_path=None, fwhm_g=2000, min_fwhm_g=10, max_fwhm_g=10000,
                  fwhm_l=2000, min_fwhm_l=10, max_fwhm_l=10000,
-                 offset=0, min_offset=-1000, max_offset=1000):
+                 offs_kms=0, min_offset=-1000, max_offset=1000):
         if csv_path is None:
             csv_path = os.path.join(csv_lines_path, "uvfe.csv")
         super().__init__(name=name, csv_path=csv_path, fwhm_g=fwhm_g, min_fwhm_g=min_fwhm_g, max_fwhm_g=max_fwhm_g,
                          fwhm_l=fwhm_l, min_fwhm_l=min_fwhm_l, max_fwhm_l=max_fwhm_l,
-                         offset=offset, min_offset=min_offset, max_offset=max_offset)
+                         offs_kms=offs_kms, min_offset=min_offset, max_offset=max_offset)
         
 
 class BalmerContinuum(model.ArithmeticModel):
@@ -700,10 +700,10 @@ class BalmerLines(model.ArithmeticModel):
         for i in range(len(self.wave)):
             pos = self.wave[i]
             rat = self.rat[i]
-            offset = pos * offs_kms / c
-            sigma = (pos + offset) * fwhm / (c * 2.354)
+            offs_kms_line = pos * offs_kms / c
+            sigma = (pos + offs_kms_line) * fwhm / (c * 2.354)
             f1 = amp
-            f2 = - (x - pos - offset) ** 2. / (2 * sigma ** 2.)
+            f2 = - (x - pos - offs_kms_line) ** 2. / (2 * sigma ** 2.)
             f += rat * f1 * np.exp(f2)
         ind = np.where(x <= lambda_BE, True, False)
         if ind.any():
@@ -821,7 +821,7 @@ def get_comps(model, get_source=False):
     if hasattr(model, 'parts'):
         traverse_parts(model.parts)
 
-    if is_rsp_mod and ~get_source:
+    if is_rsp_mod and not get_source:
         components = [rsp_model(comp) for comp in components]
 
     return components
@@ -870,7 +870,7 @@ def get_add_comps(model, get_source=False):
         result = components
 
     # Add logic for response model if needed
-    if is_rsp_mod and ~get_source:
+    if is_rsp_mod and not get_source:
         result = [rsp_model(comp) for comp in result]
 
     return result
@@ -883,7 +883,7 @@ def get_component_names(components):
         comp_names[i] = comp.name
     return comp_names
 
-def get_comp_from_name(model, name):
+def get_comp_from_name(model, name, get_source=True):
     """
     Get a component from a model by its name.
     
@@ -898,7 +898,10 @@ def get_comp_from_name(model, name):
     names = get_component_names(components)
     if name in names:
         index = np.where(names == name)[0][0]
-        return components[index]
+        comp = components[index]
+        if isinstance(comp, instrument.ConvolvedModel) and get_source:
+            comp = comp.source_model
+        return comp
     else:
         raise ValueError(f"Component with name '{name}' not found in the model.")
 

@@ -17,7 +17,7 @@ import multiprocess as mp
 import warnings
 
 from .tools import resample_spectrum, downsample_wave, vac_to_air
-from .models import save_params, read_params, get_add_comps, get_comps
+from .models import save_params, read_params, get_add_comps, get_comps, get_model_free_params_names
 
 script_dir = os.path.dirname(__file__)
 sfdpath = os.path.join(script_dir, "sfddata")
@@ -253,11 +253,11 @@ class Spectrum():
         self.model = model
         return gfit
 
-    def get_components(self, only_additive=True):
+    def get_components(self, only_additive=True, get_source=False):
         if only_additive:
-            self.components = get_add_comps(self.model)
+            self.components = get_add_comps(self.model, get_source=get_source)
         else:
-            self.components = get_comps(self.model)
+            self.components = get_comps(self.model, get_source=get_source)
     
     def save_params(self, filename=None):
         if filename is None:
@@ -345,7 +345,7 @@ class Spectrum():
     def _mc_resampling_parallel(self, nsample=10, stat=Chi2(), method=LevMar(), ncpu=None):
         if self.fluxerr is None:
             raise ValueError("Flux error is not defined. Please provide flux error for Monte Carlo sampling.")
-        self._setup_spec4fit()
+        self._check_spec4fit()
 
         # Prepare arguments for each sample
         ncpu = ncpu or max(1, mp.cpu_count() - 3)  # Leave some CPUs free
@@ -416,6 +416,10 @@ class Spectrum():
             df = self._mc_resampling_parallel(nsample, stat, method, ncpu)
         else:
             df = self._mc_resampling_NOparallelized(nsample, stat, method)
+
+        # Format the DataFrame columns ensuring to use the correct parameter names
+        colnames = get_model_free_params_names(self.model)
+        df = df.rename(columns=dict(zip(df.columns, colnames)))
 
         if save_csv:
             if filename is None and self.name is not None:

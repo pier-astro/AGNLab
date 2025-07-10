@@ -18,6 +18,7 @@ from sherpa.optmethods import LevMar
 from sherpa.stats import Chi2
 
 from . import models
+from . import instrument
 from . import tools
 
 c = const.c.to(u.km/u.s).value # Speed of light in km/s
@@ -107,7 +108,13 @@ class CubeAnalyzer:
             d = Data1D("spec", self.wave, flux, fluxerr)
             model_i = copy.deepcopy(model)
             if initpars is not None:
-                model_i.thawedpars = initpars[:, yi, xi]
+                pixel_initpars = initpars[:, yi, xi]
+                # Only set parameters that are not NaN
+                finite_mask = np.isfinite(pixel_initpars)
+                if np.any(finite_mask):
+                    current_pars = np.array(model_i.thawedpars)
+                    current_pars[finite_mask] = pixel_initpars[finite_mask]
+                    model_i.thawedpars = current_pars
             if bounds is not None:
                 model_i.thawedparmins = bounds[0, :, yi, xi]
                 model_i.thawedparmaxes = bounds[1, :, yi, xi]
@@ -138,7 +145,12 @@ class CubeAnalyzer:
             d = Data1D("spec", wave, flux, fluxerr)
             model_i = copy.deepcopy(model)
             if initpars is not None:
-                model_i.thawedpars = initpars
+                # Only set parameters that are not NaN
+                finite_mask = np.isfinite(initpars)
+                if np.any(finite_mask):
+                    current_pars = np.array(model_i.thawedpars)
+                    current_pars[finite_mask] = initpars[finite_mask]
+                    model_i.thawedpars = current_pars
             if bounds_ is not None:
                 model_i.thawedparmins = bounds_[0]
                 model_i.thawedparmaxes = bounds_[1]
@@ -474,6 +486,41 @@ class CubeAnalyzer:
         model_i = copy.deepcopy(self.model)
         model_i.thawedpars = pars
         return model_i
+
+    def evaluate_model_cube(self, wave=None, model=None, new_rsp=None):
+        """
+        Evaluate the model across the entire cube.
+
+        Parameters:
+        wave (array, optional): Wavelength array to use for evaluation. If None, uses the object's wave attribute.
+
+        Returns:
+        np.ndarray: 3D array of model values with shape (n_params, ny, nx).
+        """
+        if wave is None:
+            wave = self.wave
+        if model is None:
+            if self.model is None:
+                raise ValueError("Model must be set before evaluating.")
+            model = self.model
+        
+        ny, nx = self.data.shape[1], self.data.shape[2]
+        model_cube = np.zeros((len(wave), ny, nx), dtype=float)
+
+        if isinstance(model, instrument.ConvolvedModel):
+            if new_rsp is not None:
+                model.response_model.response_matrix = new_rsp
+            if model.response_model.response_matrix.shape != (len(wave), len(wave)):
+                raise ValueError("Response matrix shape does not match the wavelength array length. Pass a new response matrix or check the model.")
+        
+        for yi in range(ny):
+            for xi in range(nx):
+                pars = self.parscube[:, yi, xi]
+                model_i = copy.deepcopy(model)
+                model_i.thawedpars = pars
+                model_cube[:, yi, xi] = model_i(wave)
+
+        return model_cube
     
     def get_par_map(self, par):
         """

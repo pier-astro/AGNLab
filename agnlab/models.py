@@ -41,6 +41,8 @@ def init_lines_csv(wmin=4000, wmax=7000, dirpath='./lines', overwrite=False):
     :param dirpath='./lines': Used to Specify the directory where the filtered lines will be saved.
     :param overwrite=False: Used to Overwrite the existing files in the directory.
     :return: The path to the directory where the filtered lines are saved.
+
+    > **Note**: Lines are in air wavelengths!
     """
     if not os.path.exists(dirpath):
         os.makedirs(dirpath)
@@ -845,7 +847,10 @@ def get_add_comps(model, get_source=False):
     
     # Base case: if the model is a leaf node (no parts), return it in a list
     if not hasattr(model, 'parts'):
-        return [model]
+        if is_rsp_mod and not get_source:
+            return [rsp_model(model)]
+        else:
+            return [model]
     
     # Split into left and right parts
     left_part, right_part = model.parts

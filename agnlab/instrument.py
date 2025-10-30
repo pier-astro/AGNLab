@@ -79,120 +79,120 @@ def crop_response_matrix(matrix, matrix_wave, target_wave, renormalize=True):
 
 
 
-class InstRspBuilder:
-    """Handles creation and storage of the instrumental response matrix"""
-    def __init__(self, wave_grid):
-        self.wave_grid = wave_grid
-        self.response_matrix = None
+class InstrumentResponse:
+    """
+    Unified class for building, loading, saving, cropping, and registering instrumental response matrices.
+    Use classmethods to construct from parameters, FITS files, or instrument names.
+    """
+    def __init__(self, wavelength_grid, response_matrix):
+        self.wavelength_grid = np.asarray(wavelength_grid)
+        self.response_matrix = response_matrix
 
-        self.lambda_R = None
-        self.R_values = None
+    # ---- BUILDERS ----
+    @classmethod
+    def from_variable_gaussian_resolution(cls, wavelength_grid, lambda_R, R_values, interp_kind='linear'):
+        """Build from variable resolution R(lambda)."""
+        sigmas = cls._compute_sigmas_variable(wavelength_grid, lambda_R, R_values, interp_kind)
+        matrix = cls._build_sparse_gaussian_matrix(wavelength_grid, sigmas)
+        return cls(wavelength_grid, matrix)
 
-        w_diff = np.diff(wave_grid)
-        if not np.all(np.isclose(w_diff, w_diff[0])):
-            raise ValueError("Wavelength grid must be uniform")
-        self.wstep = w_diff[0]
-    
-    def _build_sparse_gaussian_matrix(self, sigmas):
-        """
-        Private helper to build a sparse Gaussian response matrix given sigma values for each row.
+    @classmethod
+    def from_fixed_fwhm(cls, wavelength_grid, fwhm):
+        """Build from fixed FWHM."""
+        if fwhm <= 0:
+            raise ValueError("FWHM must be positive.")
+        sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
+        sigmas = np.full(len(wavelength_grid), sigma)
+        matrix = cls._build_sparse_gaussian_matrix(wavelength_grid, sigmas)
+        return cls(wavelength_grid, matrix)
 
-        Args:
-            sigmas (np.ndarray): An array of sigma values, one for each row in the response matrix.
-        """
-        N = len(self.wave_grid)
+    @classmethod
+    def from_fixed_resolution(cls, wavelength_grid, R):
+        """Build from fixed resolution R."""
+        if R <= 0:
+            raise ValueError("Resolution R must be positive.")
+        delta_lam = wavelength_grid / R
+        sigmas = delta_lam / (2 * np.sqrt(2 * np.log(2)))
+        matrix = cls._build_sparse_gaussian_matrix(wavelength_grid, sigmas)
+        return cls(wavelength_grid, matrix)
+
+    @classmethod
+    def from_fixed_sigma(cls, wavelength_grid, sigma):
+        """Build from fixed sigma."""
+        if sigma <= 0:
+            raise ValueError("Sigma must be positive.")
+        sigmas = np.full(len(wavelength_grid), sigma)
+        matrix = cls._build_sparse_gaussian_matrix(wavelength_grid, sigmas)
+        return cls(wavelength_grid, matrix)
+
+    @classmethod
+    def from_array(cls, wavelength_grid, matrix):
+        """Create from a dense or sparse matrix."""
+        if matrix.shape[0] != matrix.shape[1]:
+            raise ValueError("Response matrix must be square.")
+        if matrix.shape[0] != len(wavelength_grid):
+            raise ValueError("Response matrix dimensions do not match wavelength grid.")
+        if not issparse(matrix):
+            matrix = csr_matrix(matrix)
+        return cls(wavelength_grid, matrix)
+
+    # ---- LOADERS ----
+    @classmethod
+    def from_fits(cls, filename):
+        """Load from FITS file."""
+        with fits.open(filename) as hdul:
+            wavelength_grid = hdul[1].data
+            dense_matrix = hdul[2].data.astype(np.float64)
+            matrix = csr_matrix(dense_matrix)
+        return cls(wavelength_grid, matrix)
+
+    @classmethod
+    def from_instrument(cls, instrument):
+        """Load from instrument name in the archive."""
+        mapping = load_responses_mapping()
+        if instrument not in mapping:
+            raise ValueError(f"Unknown instrument: {instrument}. Available: {list(mapping.keys())}")
+        filename = os.path.join(_get_rsp_path(), mapping[instrument])
+        return cls.from_fits(filename)
+
+    # ---- INTERNALS ----
+    @staticmethod
+    def _compute_sigmas_variable(wavelength_grid, lambda_R, R_values, interp_kind):
+        _R_interp = interp1d(lambda_R, R_values, kind=interp_kind, bounds_error=False, fill_value=(R_values[0], R_values[-1]))
+        R = np.maximum(_R_interp(wavelength_grid), 1.0)
+        delta_lam = wavelength_grid / R
+        return delta_lam / (2 * np.sqrt(2 * np.log(2)))
+
+    @staticmethod
+    def _build_sparse_gaussian_matrix(wavelength_grid, sigmas):
+        N = len(wavelength_grid)
+        wstep = np.diff(wavelength_grid)[0]
         data, row_indices, col_indices = [], [], []
-        lower_edges = self.wave_grid - self.wstep / 2
-        upper_edges = self.wave_grid + self.wstep / 2
-
-        for i, (lambda_real, sigma) in enumerate(zip(self.wave_grid, sigmas)):
-            # Compute Gaussian integral over each bin
+        lower_edges = wavelength_grid - wstep / 2
+        upper_edges = wavelength_grid + wstep / 2
+        for i, (lambda_real, sigma) in enumerate(zip(wavelength_grid, sigmas)):
             a = (lower_edges - lambda_real) / (sigma * np.sqrt(2))
             b = (upper_edges - lambda_real) / (sigma * np.sqrt(2))
             integrals = 0.5 * (erf(b) - erf(a))
-
-            # Normalize row to account for any truncation and prevent division by zero
             row_sum = integrals.sum()
             if row_sum > 1e-9:
                 integrals /= row_sum
-
-            # Store non-zero values and their indices
-            non_zero = integrals > 1e-10  # Threshold to ignore very small values
+            non_zero = integrals > 1e-10
             data.extend(integrals[non_zero])
             row_indices.extend([i] * np.sum(non_zero))
             col_indices.extend(np.where(non_zero)[0])
+        return csr_matrix((data, (row_indices, col_indices)), shape=(N, N))
 
-        # Create and store the sparse matrix
-        self.response_matrix = csr_matrix((data, (row_indices, col_indices)), shape=(N, N))
-        return self.response_matrix
-
-    def build_gaussian_matrix(self, lambda_R, R_values, interp_kind='linear'):
-        """Build the response matrix using a variable resolution R."""
-        self.lambda_R = np.array(lambda_R)
-        self.R_values = np.array(R_values)
-        _R_interp = interp1d(self.lambda_R, self.R_values, kind=interp_kind, bounds_error=False, fill_value=(self.R_values[0], self.R_values[-1]))
-
-        R = np.maximum(_R_interp(self.wave_grid), 1.0)
-        delta_lam = self.wave_grid / R
-        sigmas = delta_lam / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
-
-        return self._build_sparse_gaussian_matrix(sigmas)
-
-    def build_fixed_fwhm_matrix(self, fwhm):
-        """Build the response matrix using a fixed FWHM for the Gaussian response."""
-        if fwhm <= 0:
-            raise ValueError("FWHM must be positive.")
-        
-        sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
-        sigmas = np.full(len(self.wave_grid), sigma)
-        return self._build_sparse_gaussian_matrix(sigmas)
-
-    def build_fixed_r_matrix(self, R):
-        """Build the response matrix using a fixed resolution R."""
-        if R <= 0:
-            raise ValueError("Resolution R must be positive.")
-
-        delta_lam = self.wave_grid / R
-        sigmas = delta_lam / (2 * np.sqrt(2 * np.log(2)))
-        return self._build_sparse_gaussian_matrix(sigmas)
-
-    def build_fixed_sigma_matrix(self, sigma):
-        """Build the response matrix using a fixed sigma for the Gaussian response."""
-        if sigma <= 0:
-            raise ValueError("Sigma must be positive.")
-        
-        sigmas = np.full(len(self.wave_grid), sigma)
-        return self._build_sparse_gaussian_matrix(sigmas)
-    
-    def load_matrix_from_array(self, matrix):
-        """Load response matrix from a 2D numpy array or sparse matrix"""
-        if matrix.shape[0] != matrix.shape[1]:
-            raise ValueError("Response matrix must be square")
-        if matrix.shape[0] != len(self.wave_grid):
-            raise ValueError("Response matrix dimensions do not match wavelength grid")
-        
-        # Convert to sparse matrix if it's not already sparse
-        if not issparse(matrix):
-            matrix = csr_matrix(matrix)
-        
-        self.response_matrix = matrix
-
-    def save_to_fits(self, filename, compress=True):
-        """Save wavelength grid and matrix to FITS file"""
-        if self.response_matrix is None:
-            raise ValueError("Build matrix first using build_matrix()")
-            
+    # ---- SAVE, REGISTER, CROP ----
+    def save_fits(self, filename, compress=True):
+        """Save wavelength grid and matrix to FITS file."""
         primary_hdu = fits.PrimaryHDU()
-        wavelength_hdu = fits.ImageHDU(self.wave_grid, name='WAVELENGTH')
-        
-        # Convert sparse matrix to dense before saving
+        wavelength_hdu = fits.ImageHDU(self.wavelength_grid, name='WAVELENGTH')
         dense_matrix = self.response_matrix.toarray()
-        
         if compress:
             matrix_hdu = fits.CompImageHDU(dense_matrix, name='RESPONSE')
         else:
             matrix_hdu = fits.ImageHDU(dense_matrix, name='RESPONSE')
-        
         hdul = fits.HDUList([primary_hdu, wavelength_hdu, matrix_hdu])
         hdul.writeto(filename, overwrite=True)
 
@@ -201,53 +201,16 @@ class InstRspBuilder:
         archive_filename = os.path.join(_get_rsp_path(), os.path.basename(filename))
         if os.path.exists(archive_filename) and not clobber:
             raise ValueError(f"Response file '{archive_filename}' already exists. Use clobber=True to overwrite.")
-        self.save_to_fits(archive_filename, compress=compress)
+        self.save_fits(archive_filename, compress=compress)
         add_response_to_archive(instrument_name, filename, clobber=clobber)
 
-    def crop_matrix(self, new_wave, renormalize=True):
-        return crop_response_matrix(self.response_matrix, self.wave_grid, new_wave, renormalize=renormalize)
-    
+    def crop(self, new_wavelengths, renormalize=True):
+        """Crop the response matrix to match a new wavelength grid."""
+        cropped_matrix = crop_response_matrix(self.response_matrix, self.wavelength_grid, new_wavelengths, renormalize=renormalize)
+        return InstrumentResponse(new_wavelengths, cropped_matrix)
 
-class InstRspLoader:
-    """Handles loading and preparation of response matrices"""
-    def __init__(self, filename=None, inst=None):
-        """
-        Initialize the loader. Either `filename` or `inst` must be provided.
-        
-        - filename: Path to the FITS file containing the response matrix.
-        - inst: Instrument name to load the precomputed response file.
-        """
-        if filename is None and inst is None:
-            raise ValueError("Either `filename` or `inst` must be provided.")
-        
-        if inst is not None:
-            responses_dir = os.path.join(os.path.dirname(__file__), "responses")
-            mapping = load_responses_mapping()
-            if inst not in mapping:
-                raise ValueError(f"Unknown instrument: {inst}. Available: {list(mapping.keys())}")
-            self.filename = os.path.join(responses_dir, mapping[inst])
-        else:
-            self.filename = filename
-        
-        self.wave = None
-        self.full_matrix = None
-        self._load_matrix()
-    
-    def _load_matrix(self):
-        """Load matrix and wavelengths from FITS file"""
-        if not os.path.exists(self.filename):
-            raise FileNotFoundError(f"Response file not found: {self.filename}")
-        
-        with fits.open(self.filename) as hdul:
-            self.wave = hdul[1].data
-            dense_matrix = hdul[2].data
-            # Ensure the matrix has a supported data type
-            dense_matrix = dense_matrix.astype(np.float64)  # Convert to float64 if necessary
-            # Convert the dense matrix to a sparse matrix
-            self.full_matrix = csr_matrix(dense_matrix)
-    
-    def crop_matrix(self, wave, renormalize=True):
-        return crop_response_matrix(self.full_matrix, self.wave, wave, renormalize=renormalize)
+    def __repr__(self):
+        return f"<InstrumentResponse(wavelength_grid={self.wavelength_grid.shape}, response_matrix={'set' if self.response_matrix is not None else 'unset'})>"
 
 
 
@@ -271,14 +234,104 @@ class ConvolvedModel(CompositeModel, ArithmeticModel):
         return self.response_model.response_matrix.dot(source_eval)
 
 class SpectralRsp(Model):
+    """Sherpa model for instrumental spectral response.
+    
+    Parameters
+    ----------
+    response_matrix : array-like or sparse matrix
+        2D response matrix (N x N) representing the instrumental response
+    name : str, optional
+        Model name (default: 'instrsp')
+    """
     def __init__(self, response_matrix, name='instrsp'):
+        if response_matrix is None:
+            raise ValueError("response_matrix must be provided.")
+        if not issparse(response_matrix):
+            response_matrix = csr_matrix(response_matrix)
         self.response_matrix = response_matrix
         super().__init__(name)
 
+    @classmethod
+    def from_instrument(cls, instrument_name, wave=None, spectrum=None, renormalize=True, name='instrsp'):
+        """Construct SpectralRsp using a registered instrument response.
+        
+        Parameters
+        ----------
+        instrument_name : str
+            Name of the instrument (e.g., 'MUSE')
+        wave : array-like, optional
+            Wavelength grid. If not provided, must provide spectrum.
+        spectrum : Spectrum, optional
+            Spectrum object. Uses spectrum.observed_wave if available.
+        renormalize : bool, optional
+            Whether to renormalize response matrix rows (default: True)
+        name : str, optional
+            Model name
+            
+        Returns
+        -------
+        SpectralRsp
+            Configured spectral response model
+            
+        Examples
+        --------
+        >>> # Pass spectrum object (recommended)
+        >>> spec = Spectrum.from_txt('data.txt', z=0.1)
+        >>> spec.zCorrect()
+        >>> rsp = SpectralRsp.from_instrument('MUSE', spectrum=spec)
+        """
+        if wave is None and spectrum is None:
+            raise ValueError("Either 'wave' or 'spectrum' must be provided.")
+        
+        if wave is None:
+            if hasattr(spectrum, 'observed_wave'):
+                wave = spectrum.observed_wave
+            else:
+                raise ValueError("Provided spectrum does not have 'observed_wave' property.")
+        
+        response = InstrumentResponse.from_instrument(instrument_name)
+        cropped = response.crop(wave, renormalize=renormalize)
+        
+        return cls(cropped.response_matrix, name=name)
+
+    @classmethod
+    def from_fits(cls, filename, wave=None, spectrum=None, renormalize=True, name='instrsp'):
+        """Construct SpectralRsp by loading from FITS file.
+        
+        Parameters
+        ----------
+        filename : str
+            Path to FITS file containing response matrix
+        wave : array-like, optional
+            Wavelength grid. If not provided, must provide spectrum.
+        spectrum : Spectrum, optional
+            Spectrum object. Uses spectrum.observed_wave if available.
+        renormalize : bool, optional
+            Whether to renormalize response matrix rows (default: True)
+        name : str, optional
+            Model name
+            
+        Returns
+        -------
+        SpectralRsp
+            Configured spectral response model
+        """
+        if wave is None and spectrum is None:
+            raise ValueError("Either 'wave' or 'spectrum' must be provided.")
+        
+        if wave is None:
+            if hasattr(spectrum, 'observed_wave'):
+                wave = spectrum.observed_wave
+            else:
+                raise ValueError("Provided spectrum does not have 'observed_wave' property.")
+        
+        response = InstrumentResponse.from_fits(filename)
+        cropped = response.crop(wave, renormalize=renormalize)
+        
+        return cls(cropped.response_matrix, name=name)
+
     def __call__(self, source_model):
-        """
-        Returns a callable object that applies the response matrix to the source model.
-        """
+        """Return a Sherpa model convolved with the stored response."""
         return ConvolvedModel(self, source_model)
     
 
@@ -299,14 +352,15 @@ if __name__=='__main__':
     resp_lambda = np.array([5000.0, 5500.0, 6000.0, 6500.0, 7000.0])
     resp_R = np.array([1695.0, 1750.0, 1978.0, 2227.0, 2484.0])
 
-    # Create the response matrix
-    builder = InstRspBuilder(rsp_wave)
-    full_response_matrix = builder.build_gaussian_matrix(resp_lambda, resp_R)
-    full_response_matrix = builder.build_fixed_fwhm_matrix(10.0)
+    # Create the response matrix using the unified InstrumentResponse class
+    # Option 1: Build from variable resolution
+    response = InstrumentResponse.from_variable_gaussian_resolution(rsp_wave, resp_lambda, resp_R)
+    # Option 2: Build from fixed FWHM
+    response = InstrumentResponse.from_fixed_fwhm(rsp_wave, 10.0)
 
     # # Save and load the response matrix
-    # builder.save_to_fits('response_matrix.fits')
-    # loader = InstRspLoader('response_matrix.fits')
+    # response.save_fits('response_matrix.fits')
+    # response = InstrumentResponse.from_fits('response_matrix.fits')
 
     # Define the unfolded model and the energy grid
     gauss = Gauss1D('gauss')
@@ -316,7 +370,8 @@ if __name__=='__main__':
     wave = np.arange(5950, 6050, 1)
 
     # Crop the response matrix to match the wavelength grid
-    rsp_matrix = builder.crop_matrix(wave)
+    cropped_response = response.crop(wave)
+    rsp_matrix = cropped_response.response_matrix
 
     # Define the spectral response model and apply it to the unfolded model
     rsp = SpectralRsp(rsp_matrix)

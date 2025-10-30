@@ -6,6 +6,7 @@ from astropy.io import fits
 from mpdaf.obj.coords import WCS # Better handles keywords.
 import astropy.units as u
 import astropy.constants as const
+from sfdmap2 import sfdmap
 
 import multiprocess as mp
 from tqdm.auto import tqdm
@@ -38,6 +39,7 @@ class CubeAnalyzer:
         self.dataerr = None
         self.z = None
         self._zcorrected = None
+        self._vac_to_air_corrected = None
         self.model = None
         self.parnames = None
         self.parscube = None
@@ -71,6 +73,8 @@ class CubeAnalyzer:
         Parameters:
         z (float, optional): Redshift value. Defaults to None.
         """
+        if self._zcorrected:
+            warnings.warn("Spectrum is already redshift corrected. Skipping zCorrect step.", UserWarning)
         if z is not None:
             self.z = z
         self.wave = self.wave / (1 + self.z)
@@ -78,6 +82,28 @@ class CubeAnalyzer:
         if not np.all(self.dataerr == 1):
             self.dataerr = self.dataerr * (1 + self.z)
         self._zcorrected = True
+
+    def vac_to_air(self):
+        """
+        Convert vacuum to air wavelengths
+        :param lam_vac - Wavelength in Angstroms
+        :return: lam_air - Wavelength in Angstroms
+        """
+        if self._vac_to_air_corrected:
+            warnings.warn("Spectrum is already converted to air wavelengths. Skipping vac_to_air step.", UserWarning)
+        self.wave = tools.vac_to_air(self.wave)
+        self._vac_to_air_corrected = True
+
+    def air_to_vac(self):
+        """
+        Convert air to vacuum wavelengths
+        :param lam_air - Wavelength in Angstroms
+        :return: lam_vac - Wavelength in Angstroms
+        """
+        if not self._vac_to_air_corrected:
+            warnings.warn("Spectrum is not in air wavelengths. Skipping air_to_vac step.", UserWarning)
+        self.wave = tools.air_to_vac(self.wave)
+        self._vac_to_air_corrected = False
     
     def set_model(self, model):
         self.model = model
@@ -90,25 +116,35 @@ class CubeAnalyzer:
             raise ValueError("Data contains NaN values in wave or flux. Please clean the data before fitting.")
 
     def _fit_NOparallelized(self, flat_indices, model, niter, stat, method,
-                            initpars, bounds):
-        parscube = np.zeros((len(model.thawedpars), self.data.shape[1], self.data.shape[2]), dtype=float)
-        statvals = np.zeros((self.data.shape[1], self.data.shape[2]), dtype=float)
+                            initpars, bounds, voronoi_mode=False):
+        if voronoi_mode:
+            # For Voronoi binning, create arrays sized for the number of bins
+            n_bins = flat_indices.shape[0]
+            parscube = np.zeros((len(model.thawedpars), n_bins), dtype=float)
+            statvals = np.zeros((n_bins,), dtype=float)
+        else:
+            # For regular fitting, create arrays sized for the full cube
+            parscube = np.zeros((len(model.thawedpars), self.data.shape[1], self.data.shape[2]), dtype=float)
+            statvals = np.zeros((self.data.shape[1], self.data.shape[2]), dtype=float)
 
-        if initpars is not None:
+        if initpars is not None and not voronoi_mode:
             if initpars.shape != parscube.shape:
                 raise ValueError(f"initpars shape is not correct: {initpars.shape} != {parscube.shape}")
 
-        if bounds is not None:
+        if bounds is not None and not voronoi_mode:
             if bounds.shape != (2, parscube.shape[0], parscube.shape[1], parscube.shape[2]):
                 raise ValueError(f"bounds shape is not correct: {bounds.shape} != {(2, *parscube.shape)}")
 
-        for yi, xi in tqdm(flat_indices, desc="Fitting Cube"):
+        for idx, (yi, xi) in enumerate(tqdm(flat_indices, desc="Fitting Cube")):
             flux = self.data[:, yi, xi]
             fluxerr = self.dataerr[:, yi, xi]
             d = Data1D("spec", self.wave, flux, fluxerr)
             model_i = copy.deepcopy(model)
             if initpars is not None:
-                pixel_initpars = initpars[:, yi, xi]
+                if voronoi_mode:
+                    pixel_initpars = initpars[:, idx]
+                else:
+                    pixel_initpars = initpars[:, yi, xi]
                 # Only set parameters that are not NaN
                 finite_mask = np.isfinite(pixel_initpars)
                 if np.any(finite_mask):
@@ -116,32 +152,47 @@ class CubeAnalyzer:
                     current_pars[finite_mask] = pixel_initpars[finite_mask]
                     model_i.thawedpars = current_pars
             if bounds is not None:
-                model_i.thawedparmins = bounds[0, :, yi, xi]
-                model_i.thawedparmaxes = bounds[1, :, yi, xi]
+                if voronoi_mode:
+                    model_i.thawedparmins = bounds[0, :, idx]
+                    model_i.thawedparmaxes = bounds[1, :, idx]
+                else:
+                    model_i.thawedparmins = bounds[0, :, yi, xi]
+                    model_i.thawedparmaxes = bounds[1, :, yi, xi]
             gfit = Fit(d, model_i, stat=stat, method=method)
             for _ in range(niter):
                 gres = gfit.fit()
             pars = model_i.thawedpars
-            parscube[:, yi, xi] = pars
-            statvals[yi, xi] = gres.statval
+            if voronoi_mode:
+                parscube[:, idx] = pars
+                statvals[idx] = gres.statval
+            else:
+                parscube[:, yi, xi] = pars
+                statvals[yi, xi] = gres.statval
         dof = gres.dof
         return parscube, statvals, dof
 
     def _fit_parallelized(self, flat_indices, model, niter, stat, method,
-                        initpars, bounds, ncpu):
-        parscube = np.zeros((len(model.thawedpars), self.data.shape[1], self.data.shape[2]), dtype=float)
-        statvals = np.zeros((self.data.shape[1], self.data.shape[2]), dtype=float)
+                        initpars, bounds, ncpu, voronoi_mode=False):
+        if voronoi_mode:
+            # For Voronoi binning, create arrays sized for the number of bins
+            n_bins = flat_indices.shape[0]
+            parscube = np.zeros((len(model.thawedpars), n_bins), dtype=float)
+            statvals = np.zeros((n_bins,), dtype=float)
+        else:
+            # For regular fitting, create arrays sized for the full cube
+            parscube = np.zeros((len(model.thawedpars), self.data.shape[1], self.data.shape[2]), dtype=float)
+            statvals = np.zeros((self.data.shape[1], self.data.shape[2]), dtype=float)
 
-        if initpars is not None:
+        if initpars is not None and not voronoi_mode:
             if initpars.shape != parscube.shape:
                 raise ValueError(f"initpars shape is not correct: {initpars.shape} != {parscube.shape}")
 
-        if bounds is not None:
+        if bounds is not None and not voronoi_mode:
             if bounds.shape != (2, parscube.shape[0], parscube.shape[1], parscube.shape[2]):
                 raise ValueError(f"bounds shape is not correct: {bounds.shape} != {(2, *parscube.shape)}")
 
         def fit_worker(args):
-            yi, xi, wave, flux, fluxerr, model, niter, stat, method, initpars, bounds_ = args
+            idx, yi, xi, wave, flux, fluxerr, model, niter, stat, method, initpars, bounds_ = args
             d = Data1D("spec", wave, flux, fluxerr)
             model_i = copy.deepcopy(model)
             if initpars is not None:
@@ -158,26 +209,52 @@ class CubeAnalyzer:
             for _ in range(niter):
                 gres = gfit.fit()
             pars = model_i.thawedpars
-            return yi, xi, pars, gres.statval, gres.dof
+            return idx, yi, xi, pars, gres.statval, gres.dof
 
         args_list = []
-        for yi, xi in flat_indices:
-            ipars = initpars[:, yi, xi] if initpars is not None else None
-            ibounds = bounds[:, :, yi, xi] if bounds is not None else None
-            args_list.append((yi, xi, self.wave, self.data[:, yi, xi], self.dataerr[:, yi, xi], model, niter, stat, method, ipars, ibounds))
+        for idx, (yi, xi) in enumerate(flat_indices):
+            if initpars is not None:
+                if voronoi_mode:
+                    ipars = initpars[:, idx]
+                else:
+                    ipars = initpars[:, yi, xi]
+            else:
+                ipars = None
+            
+            if bounds is not None:
+                if voronoi_mode:
+                    ibounds = bounds[:, :, idx]
+                else:
+                    ibounds = bounds[:, :, yi, xi]
+            else:
+                ibounds = None
+            
+            args_list.append((idx, yi, xi, self.wave, self.data[:, yi, xi], self.dataerr[:, yi, xi], model, niter, stat, method, ipars, ibounds))
 
         with mp.Pool(processes=ncpu) as pool:
             results = list(tqdm(pool.imap(fit_worker, args_list), total=len(args_list), desc="Fitting Cube"))
         
-        for yi, xi, pars, statval, dof in results:
-            parscube[:, yi, xi] = pars
-            statvals[yi, xi] = statval
+        for idx, yi, xi, pars, statval, dof in results:
+            if voronoi_mode:
+                parscube[:, idx] = pars
+                statvals[idx] = statval
+            else:
+                parscube[:, yi, xi] = pars
+                statvals[yi, xi] = statval
             dof = dof
         return parscube, statvals, dof
 
     def fit(self, model=None, niter=1, stat=Chi2(), method=LevMar(),
-            initpars=None, bounds=None, ncpu=None):
+            initpars=None, bounds=None, ncpu=None, bin_map=None):
         """
+        Fit the model to the cube data, with optional Voronoi binning support.
+        
+        Parameters:
+        -----------
+        bin_map : array_like, optional
+            2D array with bin numbers. If provided, fits only one spaxel per bin
+            and propagates results to all spaxels in that bin.
+        
         Note: To repeat a set of bounds for each pixel, you can use:
         ```python
         import numpy as np
@@ -198,14 +275,60 @@ class CubeAnalyzer:
         if not self._zcorrected:
             warnings.warn("Wavelengths are not redshift-corrected. Consider calling zCorrect() before fitting.", UserWarning)
 
-        xi, yi = np.indices(self.data.shape[1:])
-        flat_indices = np.array(list(zip(yi.flatten(), xi.flatten())))
+
+        if bin_map is not None:
+            if bin_map.shape != self.data.shape[1:]:
+                raise ValueError("bin_map shape must match the spatial dimensions of the data.")
+            valid_bins = bin_map[np.isfinite(bin_map)]
+            unique_bins = np.unique(valid_bins)
+            bin_centers = []
+            for b in unique_bins:
+                yx = np.argwhere(bin_map == b)
+                y_mean = int(np.mean(yx[:, 0]))
+                x_mean = int(np.mean(yx[:, 1]))
+                bin_centers.append((y_mean, x_mean))
+            bin_centers = np.array(bin_centers)
+
+            if initpars is not None:
+                if initpars.shape != (len(self.model.thawedpars), *self.data.shape[1:]):
+                    raise ValueError(f"initpars shape is not correct: {initpars.shape} != {(len(self.model.thawedpars), *self.data.shape[1:])}")
+                initpars_binned = np.full((len(self.model.thawedpars), len(unique_bins)), np.nan, dtype=float)
+                for i, (yi, xi) in enumerate(bin_centers):
+                    initpars_binned[:, i] = initpars[:, yi, xi]
+                initpars = initpars_binned
+
+            if bounds is not None:
+                if bounds.shape != (2, len(self.model.thawedpars), *self.data.shape[1:]):
+                    raise ValueError(f"bounds shape is not correct: {bounds.shape} != {(2, len(self.model.thawedpars), *self.data.shape[1:])}")
+                bounds_binned = np.full((2, len(self.model.thawedpars), len(unique_bins)), np.nan, dtype=float)
+                for i, (yi, xi) in enumerate(bin_centers):
+                    bounds_binned[:, :, i] = bounds[:, :, yi, xi]
+                bounds = bounds_binned
+
+            flat_indices = bin_centers
+
+        else:
+            # Fit every spaxel
+            xi, yi = np.indices(self.data.shape[1:])
+            flat_indices = np.array(list(zip(yi.flatten(), xi.flatten())))
 
         if ncpu == 1.:
-            parscube, statvals, dof = self._fit_NOparallelized(flat_indices, model=self.model, niter=niter, stat=stat, method=method, initpars=initpars, bounds=bounds)
+            parscube, statvals, dof = self._fit_NOparallelized(flat_indices, model=self.model, niter=niter, stat=stat, method=method, initpars=initpars, bounds=bounds, voronoi_mode=(bin_map is not None))
         else:
             ncpu = ncpu or max(1, mp.cpu_count() - 3)
-            parscube, statvals, dof = self._fit_parallelized(flat_indices, model=self.model, niter=niter, stat=stat, method=method, initpars=initpars, bounds=bounds, ncpu=ncpu)
+            parscube, statvals, dof = self._fit_parallelized(flat_indices, model=self.model, niter=niter, stat=stat, method=method, initpars=initpars, bounds=bounds, ncpu=ncpu, voronoi_mode=(bin_map is not None))
+        
+        if bin_map is not None:
+            # Propagate results to all spaxels in each bin
+            full_parscube = np.zeros((len(self.model.thawedpars), self.data.shape[1], self.data.shape[2]), dtype=float)
+            full_statvals = np.zeros((self.data.shape[1], self.data.shape[2]), dtype=float)
+            for i, b in enumerate(unique_bins):
+                yx = np.argwhere(bin_map == b)
+                for yi, xi in yx:
+                    full_parscube[:, yi, xi] = parscube[:, i]  # parscube[:, i] should be shape (n_pars,)
+                    full_statvals[yi, xi] = statvals[i]
+            parscube = full_parscube
+            statvals = full_statvals
 
         self.parscube = parscube
         self.stat = statvals

@@ -150,6 +150,16 @@ def vac_to_air(vac_wave):
     """
     return vac_wave/convert_to_vacuum(vac_wave)
 
+def air_to_vac(air_wave):
+    """
+    Convert air to vacuum wavelengths
+
+    :param lam_air - Wavelength in Angstroms
+    :return: lam_vac - Wavelength in Angstroms
+
+    """
+    return air_wave*convert_to_vacuum(air_wave)
+
 def get_mask(x, intervals, mask_inside=True):
     """
     Get a mask of the intervals

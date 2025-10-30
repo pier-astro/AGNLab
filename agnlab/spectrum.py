@@ -16,7 +16,7 @@ from tqdm.auto import tqdm, trange
 import multiprocess as mp
 import warnings
 
-from .tools import resample_spectrum, downsample_wave, vac_to_air
+from .tools import resample_spectrum, downsample_wave, vac_to_air, air_to_vac
 from .models import save_params, read_params, get_add_comps, get_comps, get_model_free_params_names
 
 script_dir = os.path.dirname(__file__)
@@ -30,6 +30,9 @@ class Spectrum():
         self._zcorrected = False
         self._dereddened = False
         self._vac_to_air_corrected = False
+        
+        # Cache for observed-frame wavelength (for instrumental response)
+        self._observed_wave = None
 
         # Result of AGN-Host decomposition
         self.host = None
@@ -89,6 +92,40 @@ class Spectrum():
         
         return cls(wave=wave, flux=flux, fluxerr=fluxerr, ra=ra, dec=dec, z=z, name=name)
 
+    @property
+    def observed_wave(self):
+        """Return the wavelength in the OBSERVED frame (before redshift correction).
+        
+        This property is essential for instrumental response calculations, as the
+        response matrix must be applied in the observer's frame, not the rest frame.
+        
+        Behavior:
+        - Before zCorrect(): Returns a copy of the current wavelength
+        - After zCorrect(): Returns the cached observed-frame wavelength
+        
+        Returns
+        -------
+        ndarray
+            Wavelength array in the observed frame
+            
+        Examples
+        --------
+        >>> spec = Spectrum.from_txt('data.txt', z=0.1)
+        >>> spec.crop(wbounds=(5000, 7000))  # Crop in observed frame
+        >>> spec.DeRedden()  # Doesn't change wavelength
+        >>> spec.zCorrect()  # Now spec.wave is rest-frame
+        >>> 
+        >>> # Get observed wavelengths for instrumental response
+        >>> inst_wave = spec.observed_wave
+        >>> rsp = SpectralRsp.from_instrument('MUSE', wave=inst_wave)
+        """
+        if self._observed_wave is None:
+            # Not yet z-corrected, return current wavelength
+            return self.wave.copy()
+        else:
+            # Already z-corrected, return cached observed wavelength
+            return self._observed_wave.copy()
+
     def DeRedden(self, ebv=None):
         """
         Function for dereddening  a flux vector  using the parametrization given by
@@ -118,12 +155,37 @@ class Spectrum():
 
     def zCorrect(self, redshift=None):
         """
-        The zCorrect() function corrects the flux for redshift.
-        It takes in a redshift and corrects the wavelength, flux, and error arrays by that given redshift.
-
-        :param self: Used to Reference the class object.
-        :param redshift=0: Used to Specify the redshift of the object.
-        :return: The wavelength, flux and error arrays for the object at a redshift of z=0.
+        Correct the spectrum for redshift, converting to rest-frame wavelengths.
+        
+        IMPORTANT: This method automatically caches the observed-frame wavelength
+        before correction. Access it later via spec.observed_wave for instrumental
+        response calculations.
+        
+        The transformation applied:
+        - wavelength: wave_rest = wave_obs / (1 + z)
+        - flux: flux_rest = flux_obs * (1 + z)  [flux conservation]
+        - error: err_rest = err_obs * (1 + z)
+        
+        Parameters
+        ----------
+        redshift : float, optional
+            Redshift value. If provided, updates self.z. If None, uses existing self.z.
+        
+        Notes
+        -----
+        After calling this method:
+        - self.wave contains REST-FRAME wavelengths
+        - self.observed_wave returns OBSERVED-FRAME wavelengths (cached)
+        - Use self.observed_wave for instrumental response matrices
+        
+        Examples
+        --------
+        >>> spec = Spectrum.from_txt('data.txt', z=0.1)
+        >>> spec.crop(wbounds=(5000, 7000))  # Observed frame
+        >>> print(f"Observed: {spec.wave[0]:.1f} Å")
+        >>> spec.zCorrect()
+        >>> print(f"Rest frame: {spec.wave[0]:.1f} Å")
+        >>> print(f"Observed (cached): {spec.observed_wave[0]:.1f} Å")
         """
         if self._zcorrected:
             warnings.warn("Spectrum is already redshift corrected. Skipping zCorrect step.", UserWarning)
@@ -131,6 +193,11 @@ class Spectrum():
             self.input_wave = self.wave.copy() if not hasattr(self, 'input_wave') else self.input_wave
             self.input_flux = self.flux.copy() if not hasattr(self, 'input_flux') else self.input_flux
             self.input_fluxerr = self.fluxerr.copy() if not hasattr(self, 'input_fluxerr') else self.input_fluxerr
+            
+            # Cache the observed wavelength BEFORE correction
+            if self._observed_wave is None:
+                self._observed_wave = self.wave.copy()
+            
             if redshift is not None:
                 self.z = redshift
             self.wave = self.wave / (1 + self.z)
@@ -153,18 +220,33 @@ class Spectrum():
             self.wave = vac_to_air(self.wave)
             self._vac_to_air_corrected = True
 
+    def air_to_vac(self):
+        """
+        Convert air to vacuum wavelengths
+        :param lam_air - Wavelength in Angstroms
+        :return: lam_vac - Wavelength in Angstroms
+        """
+        if self._vac_to_air_corrected:
+            warnings.warn("Spectrum is already converted to vacuum wavelengths. Skipping air_to_vac step.", UserWarning)
+        else:
+            self.input_wave = self.wave.copy() if not hasattr(self, 'input_wave') else self.input_wave
+            self.wave = air_to_vac(self.wave)
+            self._vac_to_air_corrected = False
+
     def reset(self):
         """
         Reset the spectrum to its original state before any corrections.
-        This will restore the original wavelength, flux, and flux error arrays.
+        This will restore the original wavelength, flux, and flux error arrays
+        and clear the observed wavelength cache.
         """
         if hasattr(self, 'input_wave'):
-            self.wave = self.input_wave
-            self.flux = self.input_flux
-            self.fluxerr = self.input_fluxerr
+            self.wave = self.input_wave.copy()
+            self.flux = self.input_flux.copy()
+            self.fluxerr = self.input_fluxerr.copy()
             self._zcorrected = False
             self._dereddened = False
             self._vac_to_air_corrected = False
+            self._observed_wave = None  # Clear the cached observed wavelength
         else:
             raise ValueError("No input data found. Please ensure the spectrum has been initialized with input data.")
 
@@ -185,8 +267,31 @@ class Spectrum():
         
     def crop(self, wbounds=None, wmask=None):
         """
-        The crop function crops the spectrum to a specified wavelength range.
+        Crop the spectrum to a specified wavelength range or mask.
+        
+        IMPORTANT: Cropping should typically be done BEFORE zCorrect() to ensure
+        the observed wavelength grid is properly cached for instrumental response.
+        
+        Parameters
+        ----------
+        wbounds : tuple of (float, float), optional
+            Wavelength bounds (min, max) to crop to
+        wmask : array-like of bool, optional
+            Boolean mask to apply to the spectrum
+            
+        Notes
+        -----
+        If cropping after zCorrect(), the observed wavelength cache will also be
+        cropped, but a warning will be issued to suggest cropping before z-correction.
         """
+        if self._zcorrected:
+            warnings.warn(
+                "Cropping after redshift correction. The observed wavelength grid "
+                "has been cached and will be cropped accordingly. For cleaner workflow, "
+                "consider cropping before zCorrect().",
+                UserWarning
+            )
+        
         if wbounds is not None:
             wmin, wmax = wbounds
             wmask = (self.wave > wmin) & (self.wave < wmax)
@@ -194,6 +299,7 @@ class Spectrum():
             wmask = wmask
         else:
             raise ValueError("Either wbounds or wmask must be provided.")
+        
         self.wave = self.wave[wmask]
         self.flux = self.flux[wmask]
         if self.fluxerr is not None:
@@ -202,6 +308,10 @@ class Spectrum():
             self.agn = self.agn[wmask]
         if self.host is not None:
             self.host = self.host[wmask]
+        
+        # Also crop the observed wavelength cache if it exists
+        if self._observed_wave is not None:
+            self._observed_wave = self._observed_wave[wmask]
 
     def plot_spectrum(self, ax=None):
         """
